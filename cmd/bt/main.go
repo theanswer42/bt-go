@@ -4,6 +4,10 @@ import (
 	"fmt"
 	"os"
 
+	"bt-go/internal/app"
+	"bt-go/internal/config"
+
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -27,16 +31,53 @@ var configCmd = &cobra.Command{
 var configInitCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize configuration",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Would initialize configuration at ~/.config/bt.toml")
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Get application defaults
+		defaults, err := app.GetDefaults()
+		if err != nil {
+			return fmt.Errorf("failed to get defaults: %w", err)
+		}
+
+		// Generate a new host ID
+		hostID := uuid.New().String()
+
+		// Create config with defaults
+		cfg := config.NewConfig(hostID, defaults["base_dir"])
+
+		// Initialize config file
+		if err := config.Init(defaults["config_path"], cfg); err != nil {
+			return fmt.Errorf("failed to initialize config: %w", err)
+		}
+
+		fmt.Printf("Configuration initialized at %s\n", defaults["config_path"])
+		fmt.Printf("Host ID: %s\n", hostID)
+		fmt.Printf("Base Dir: %s\n", defaults["base_dir"])
+		return nil
 	},
 }
 
 var configListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "View configuration",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Would display current configuration settings")
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Get application defaults
+		defaults, err := app.GetDefaults()
+		if err != nil {
+			return fmt.Errorf("failed to get defaults: %w", err)
+		}
+
+		// Read config
+		cfg, err := config.ReadFromFile(defaults["config_path"])
+		if err != nil {
+			return fmt.Errorf("failed to read config: %w", err)
+		}
+
+		// Display config
+		fmt.Printf("Configuration from %s:\n\n", defaults["config_path"])
+		fmt.Printf("Host ID:  %s\n", cfg.HostID)
+		fmt.Printf("Base Dir: %s\n", cfg.BaseDir)
+		fmt.Printf("Log Dir:  %s\n", cfg.LogDir)
+		return nil
 	},
 }
 
