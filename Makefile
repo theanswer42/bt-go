@@ -12,7 +12,7 @@ generate-schema: ## Generate schema.sql from migration files
 
 sqlc: generate-schema ## Generate sqlc code from schema.sql
 	@echo "Generating sqlc code..."
-	@sqlc generate
+	@sqlc generate -f internal/database/sqlc/sqlc.yaml
 
 generate: sqlc ## Generate all code (schema + sqlc)
 
