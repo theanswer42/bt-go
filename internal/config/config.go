@@ -11,9 +11,25 @@ import (
 
 // Config represents the main configuration for bt.
 type Config struct {
-	HostID  string `toml:"host_id"`
-	BaseDir string `toml:"base_dir"`
-	LogDir  string `toml:"log_dir"`
+	HostID  string        `toml:"host_id"`
+	BaseDir string        `toml:"base_dir"`
+	LogDir  string        `toml:"log_dir"`
+	Vaults  []VaultConfig `toml:"vaults"`
+}
+
+// VaultConfig represents configuration for a vault backend.
+// This uses a tagged union pattern - the Type field determines which other fields are relevant.
+type VaultConfig struct {
+	Type string `toml:"type"` // "memory", "s3", or "filesystem"
+	Name string `toml:"name"`
+
+	// S3-specific fields (only used when Type == "s3")
+	S3Bucket string `toml:"s3_bucket,omitempty"`
+	S3Prefix string `toml:"s3_prefix,omitempty"`
+	S3Region string `toml:"s3_region,omitempty"`
+
+	// FileSystem-specific fields (only used when Type == "filesystem")
+	FSVaultRoot string `toml:"fs_vault_root,omitempty"`
 }
 
 // NewConfig creates a new Config with the provided values.
