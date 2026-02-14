@@ -8,5 +8,5 @@ package database
 // Or use the Makefile:
 //   make generate
 
-//go:generate go run tools/generate_schema.go
-//go:generate sqlc generate -f sqlc/sqlc.yaml
+//go:generate sh -c "cd ../.. && go run internal/database/tools/generate_schema.go"
+//go:generate sh -c "cd ../.. && sqlc generate -f internal/database/sqlc/sqlc.yaml"

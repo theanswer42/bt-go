@@ -1,3 +1,15 @@
+// generate_schema generates schema.sql from migration files.
+//
+// This tool applies all migrations to an in-memory database and extracts
+// the resulting schema to internal/database/sqlc/schema.sql.
+//
+// Usage (must run from project root):
+//
+//	go run internal/database/tools/generate_schema.go
+//
+// Or use the Makefile:
+//
+//	make generate-schema
 package main
 
 import (
@@ -11,6 +23,13 @@ import (
 )
 
 func main() {
+	// Verify we're running from project root
+	if _, err := os.Stat("go.mod"); err != nil {
+		fmt.Fprintln(os.Stderr, "Error: must run from project root (where go.mod is)")
+		fmt.Fprintln(os.Stderr, "Usage: go run internal/database/tools/generate_schema.go")
+		os.Exit(1)
+	}
+
 	// Create in-memory database with proper SQLite configuration
 	db, err := database.OpenConnection(":memory:")
 	if err != nil {
@@ -32,8 +51,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Determine output path (relative to project root)
+	// Output path (relative to project root)
 	outPath := filepath.Join("internal", "database", "sqlc", "schema.sql")
+
+	// Ensure output directory exists
+	outDir := filepath.Dir(outPath)
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create output directory: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Write schema to file
 	if err := os.WriteFile(outPath, []byte(schema), 0644); err != nil {
