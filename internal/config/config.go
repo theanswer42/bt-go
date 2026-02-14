@@ -11,10 +11,11 @@ import (
 
 // Config represents the main configuration for bt.
 type Config struct {
-	HostID  string        `toml:"host_id"`
-	BaseDir string        `toml:"base_dir"`
-	LogDir  string        `toml:"log_dir"`
-	Vaults  []VaultConfig `toml:"vaults"`
+	HostID   string         `toml:"host_id"`
+	BaseDir  string         `toml:"base_dir"`
+	LogDir   string         `toml:"log_dir"`
+	Vaults   []VaultConfig  `toml:"vaults"`
+	Database DatabaseConfig `toml:"database"`
 }
 
 // VaultConfig represents configuration for a vault backend.
@@ -30,6 +31,13 @@ type VaultConfig struct {
 
 	// FileSystem-specific fields (only used when Type == "filesystem")
 	FSVaultRoot string `toml:"fs_vault_root,omitempty"`
+}
+
+// DatabaseConfig represents configuration for the metadata database.
+// This uses a tagged union pattern - the Type field determines which other fields are relevant.
+type DatabaseConfig struct {
+	Type    string `toml:"type"`              // "sqlite" or "memory"
+	DataDir string `toml:"data_dir,omitempty"` // only used for type=sqlite
 }
 
 // NewConfig creates a new Config with the provided values.
