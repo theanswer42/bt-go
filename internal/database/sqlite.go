@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"bt-go/internal/bt"
-	"bt-go/internal/model"
+	"bt-go/internal/database/sqlc"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite driver
 )
@@ -55,65 +55,65 @@ func OpenConnection(path string) (*sql.DB, error) {
 
 // Directory operations
 
-func (s *SQLiteDatabase) FindDirectoryByPath(path string) (*model.Directory, error) {
+func (s *SQLiteDatabase) FindDirectoryByPath(path string) (*sqlc.Directory, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (s *SQLiteDatabase) SearchDirectoryForPath(path string) (*model.Directory, error) {
+func (s *SQLiteDatabase) SearchDirectoryForPath(path string) (*sqlc.Directory, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (s *SQLiteDatabase) CreateDirectory(path string) (*model.Directory, error) {
+func (s *SQLiteDatabase) CreateDirectory(path string) (*sqlc.Directory, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (s *SQLiteDatabase) FindDirectoriesByPathPrefix(pathPrefix string) ([]*model.Directory, error) {
+func (s *SQLiteDatabase) FindDirectoriesByPathPrefix(pathPrefix string) ([]*sqlc.Directory, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (s *SQLiteDatabase) DeleteDirectory(directory *model.Directory) error {
+func (s *SQLiteDatabase) DeleteDirectory(directory *sqlc.Directory) error {
 	return fmt.Errorf("not implemented")
 }
 
 // File operations
 
-func (s *SQLiteDatabase) FindFileByPath(directory *model.Directory, relativePath string) (*model.File, error) {
+func (s *SQLiteDatabase) FindFileByPath(directory *sqlc.Directory, relativePath string) (*sqlc.File, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (s *SQLiteDatabase) FindOrCreateFile(directory *model.Directory, relativePath string) (*model.File, error) {
+func (s *SQLiteDatabase) FindOrCreateFile(directory *sqlc.Directory, relativePath string) (*sqlc.File, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (s *SQLiteDatabase) MoveFiles(sourceDir, destDir *model.Directory) error {
+func (s *SQLiteDatabase) MoveFiles(sourceDir, destDir *sqlc.Directory) error {
 	return fmt.Errorf("not implemented")
 }
 
 // FileSnapshot operations
 
-func (s *SQLiteDatabase) FindFileSnapshotsForFile(file *model.File) ([]*model.FileSnapshot, error) {
+func (s *SQLiteDatabase) FindFileSnapshotsForFile(file *sqlc.File) ([]*sqlc.FileSnapshot, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (s *SQLiteDatabase) FindFileSnapshotByChecksum(file *model.File, checksum string) (*model.FileSnapshot, error) {
+func (s *SQLiteDatabase) FindFileSnapshotByChecksum(file *sqlc.File, checksum string) (*sqlc.FileSnapshot, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (s *SQLiteDatabase) CreateFileSnapshot(snapshot *model.FileSnapshot) error {
+func (s *SQLiteDatabase) CreateFileSnapshot(snapshot *sqlc.FileSnapshot) error {
 	return fmt.Errorf("not implemented")
 }
 
-func (s *SQLiteDatabase) UpdateFileCurrentSnapshot(file *model.File, snapshotID string) error {
+func (s *SQLiteDatabase) UpdateFileCurrentSnapshot(file *sqlc.File, snapshotID string) error {
 	return fmt.Errorf("not implemented")
 }
 
 // Content operations
 
-func (s *SQLiteDatabase) CreateContent(checksum string) (*model.Content, error) {
+func (s *SQLiteDatabase) CreateContent(checksum string) (*sqlc.Content, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (s *SQLiteDatabase) FindContentByChecksum(checksum string) (*model.Content, error) {
+func (s *SQLiteDatabase) FindContentByChecksum(checksum string) (*sqlc.Content, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
