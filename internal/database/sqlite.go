@@ -19,7 +19,7 @@ type SQLiteDatabase struct {
 // NewSQLiteDatabase creates a new SQLite database connection.
 // path can be a file path or ":memory:" for in-memory database.
 func NewSQLiteDatabase(path string) (*SQLiteDatabase, error) {
-	db, err := openConnection(path)
+	db, err := OpenConnection(path)
 	if err != nil {
 		return nil, err
 	}
@@ -30,8 +30,10 @@ func NewSQLiteDatabase(path string) (*SQLiteDatabase, error) {
 	}, nil
 }
 
-// openConnection opens and configures a SQLite database connection.
-func openConnection(path string) (*sql.DB, error) {
+// OpenConnection opens and configures a SQLite database connection with appropriate PRAGMAs.
+// This is exported for use in tools and tests that need a properly configured SQLite connection.
+// path can be a file path or ":memory:" for in-memory database.
+func OpenConnection(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
