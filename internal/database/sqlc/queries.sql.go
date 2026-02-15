@@ -7,51 +7,25 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
-const createDirectory = `-- name: CreateDirectory :one
-INSERT INTO directories (id, path, created_at)
-VALUES (?, ?, ?)
-RETURNING id, path, created_at
+const deleteDirectoryByID = `-- name: DeleteDirectoryByID :exec
+DELETE FROM directories WHERE id = ?
 `
 
-type CreateDirectoryParams struct {
-	ID        string    `json:"id"`
-	Path      string    `json:"path"`
-	CreatedAt time.Time `json:"created_at"`
+func (q *Queries) DeleteDirectoryByID(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteDirectoryByID, id)
+	return err
 }
 
-func (q *Queries) CreateDirectory(ctx context.Context, arg CreateDirectoryParams) (Directory, error) {
-	row := q.db.QueryRowContext(ctx, createDirectory, arg.ID, arg.Path, arg.CreatedAt)
-	var i Directory
-	err := row.Scan(&i.ID, &i.Path, &i.CreatedAt)
-	return i, err
-}
-
-const getDirectory = `-- name: GetDirectory :one
-
-
-SELECT id, path, created_at FROM directories WHERE id = ? LIMIT 1
+const getDirectoriesByPathPrefix = `-- name: GetDirectoriesByPathPrefix :many
+SELECT id, path, created_at FROM directories WHERE path LIKE ?1 ORDER BY path
 `
 
-// SQL queries for bt database operations
-// sqlc will generate type-safe Go code from these queries
-// See: https://docs.sqlc.dev/en/latest/
-// Directory queries
-func (q *Queries) GetDirectory(ctx context.Context, id string) (Directory, error) {
-	row := q.db.QueryRowContext(ctx, getDirectory, id)
-	var i Directory
-	err := row.Scan(&i.ID, &i.Path, &i.CreatedAt)
-	return i, err
-}
-
-const listDirectories = `-- name: ListDirectories :many
-SELECT id, path, created_at FROM directories ORDER BY path
-`
-
-func (q *Queries) ListDirectories(ctx context.Context) ([]Directory, error) {
-	rows, err := q.db.QueryContext(ctx, listDirectories)
+func (q *Queries) GetDirectoriesByPathPrefix(ctx context.Context, path string) ([]Directory, error) {
+	rows, err := q.db.QueryContext(ctx, getDirectoriesByPathPrefix, path)
 	if err != nil {
 		return nil, err
 	}
@@ -71,4 +45,123 @@ func (q *Queries) ListDirectories(ctx context.Context) ([]Directory, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const getDirectoryByPath = `-- name: GetDirectoryByPath :one
+
+
+SELECT id, path, created_at FROM directories WHERE path = ? LIMIT 1
+`
+
+// SQL queries for bt database operations
+// sqlc will generate type-safe Go code from these queries
+// See: https://docs.sqlc.dev/en/latest/
+// Directory queries
+func (q *Queries) GetDirectoryByPath(ctx context.Context, path string) (Directory, error) {
+	row := q.db.QueryRowContext(ctx, getDirectoryByPath, path)
+	var i Directory
+	err := row.Scan(&i.ID, &i.Path, &i.CreatedAt)
+	return i, err
+}
+
+const getFilesByDirectoryID = `-- name: GetFilesByDirectoryID :many
+
+SELECT id, name, directory_id, current_snapshot_id, deleted FROM files WHERE directory_id = ?
+`
+
+// File queries
+func (q *Queries) GetFilesByDirectoryID(ctx context.Context, directoryID string) ([]File, error) {
+	rows, err := q.db.QueryContext(ctx, getFilesByDirectoryID, directoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []File
+	for rows.Next() {
+		var i File
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.DirectoryID,
+			&i.CurrentSnapshotID,
+			&i.Deleted,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const insertDirectory = `-- name: InsertDirectory :one
+INSERT INTO directories (id, path, created_at)
+VALUES (?, ?, ?)
+RETURNING id, path, created_at
+`
+
+type InsertDirectoryParams struct {
+	ID        string    `json:"id"`
+	Path      string    `json:"path"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (q *Queries) InsertDirectory(ctx context.Context, arg InsertDirectoryParams) (Directory, error) {
+	row := q.db.QueryRowContext(ctx, insertDirectory, arg.ID, arg.Path, arg.CreatedAt)
+	var i Directory
+	err := row.Scan(&i.ID, &i.Path, &i.CreatedAt)
+	return i, err
+}
+
+const insertFile = `-- name: InsertFile :one
+INSERT INTO files (id, name, directory_id, current_snapshot_id, deleted)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, name, directory_id, current_snapshot_id, deleted
+`
+
+type InsertFileParams struct {
+	ID                string         `json:"id"`
+	Name              string         `json:"name"`
+	DirectoryID       string         `json:"directory_id"`
+	CurrentSnapshotID sql.NullString `json:"current_snapshot_id"`
+	Deleted           bool           `json:"deleted"`
+}
+
+func (q *Queries) InsertFile(ctx context.Context, arg InsertFileParams) (File, error) {
+	row := q.db.QueryRowContext(ctx, insertFile,
+		arg.ID,
+		arg.Name,
+		arg.DirectoryID,
+		arg.CurrentSnapshotID,
+		arg.Deleted,
+	)
+	var i File
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.DirectoryID,
+		&i.CurrentSnapshotID,
+		&i.Deleted,
+	)
+	return i, err
+}
+
+const updateFileDirectoryAndName = `-- name: UpdateFileDirectoryAndName :exec
+UPDATE files SET directory_id = ?, name = ? WHERE id = ?
+`
+
+type UpdateFileDirectoryAndNameParams struct {
+	DirectoryID string `json:"directory_id"`
+	Name        string `json:"name"`
+	ID          string `json:"id"`
+}
+
+func (q *Queries) UpdateFileDirectoryAndName(ctx context.Context, arg UpdateFileDirectoryAndNameParams) error {
+	_, err := q.db.ExecContext(ctx, updateFileDirectoryAndName, arg.DirectoryID, arg.Name, arg.ID)
+	return err
 }

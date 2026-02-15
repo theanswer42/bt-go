@@ -4,13 +4,29 @@
 
 -- Directory queries
 
--- name: GetDirectory :one
-SELECT * FROM directories WHERE id = ? LIMIT 1;
+-- name: GetDirectoryByPath :one
+SELECT * FROM directories WHERE path = ? LIMIT 1;
 
--- name: ListDirectories :many
-SELECT * FROM directories ORDER BY path;
+-- name: GetDirectoriesByPathPrefix :many
+SELECT * FROM directories WHERE path LIKE ?1 ORDER BY path;
 
--- name: CreateDirectory :one
+-- name: InsertDirectory :one
 INSERT INTO directories (id, path, created_at)
 VALUES (?, ?, ?)
+RETURNING *;
+
+-- name: DeleteDirectoryByID :exec
+DELETE FROM directories WHERE id = ?;
+
+-- File queries
+
+-- name: GetFilesByDirectoryID :many
+SELECT * FROM files WHERE directory_id = ?;
+
+-- name: UpdateFileDirectoryAndName :exec
+UPDATE files SET directory_id = ?, name = ? WHERE id = ?;
+
+-- name: InsertFile :one
+INSERT INTO files (id, name, directory_id, current_snapshot_id, deleted)
+VALUES (?, ?, ?, ?, ?)
 RETURNING *;

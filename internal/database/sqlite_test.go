@@ -1,0 +1,307 @@
+package database
+
+import (
+	"context"
+	"database/sql"
+	_ "embed"
+	"testing"
+
+	"github.com/google/uuid"
+
+	"bt-go/internal/database/sqlc"
+)
+
+//go:embed sqlc/schema.sql
+var schemaSQL string
+
+// newTestDB creates a new in-memory database with schema applied.
+func newTestDB(t *testing.T) *SQLiteDatabase {
+	t.Helper()
+
+	db, err := NewSQLiteDatabase(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+
+	if _, err := db.db.Exec(schemaSQL); err != nil {
+		db.Close()
+		t.Fatalf("failed to apply schema: %v", err)
+	}
+
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	return db
+}
+
+func TestSQLiteDatabase_FindDirectoryByPath(t *testing.T) {
+	t.Run("returns nil when directory not found", func(t *testing.T) {
+		db := newTestDB(t)
+
+		dir, err := db.FindDirectoryByPath("/nonexistent/path")
+		if err != nil {
+			t.Fatalf("FindDirectoryByPath() error = %v", err)
+		}
+		if dir != nil {
+			t.Errorf("FindDirectoryByPath() = %v, want nil", dir)
+		}
+	})
+
+	t.Run("finds existing directory", func(t *testing.T) {
+		db := newTestDB(t)
+
+		// Create a directory first
+		created, err := db.CreateDirectory("/home/user/docs")
+		if err != nil {
+			t.Fatalf("CreateDirectory() error = %v", err)
+		}
+
+		// Now find it
+		found, err := db.FindDirectoryByPath("/home/user/docs")
+		if err != nil {
+			t.Fatalf("FindDirectoryByPath() error = %v", err)
+		}
+		if found == nil {
+			t.Fatal("FindDirectoryByPath() returned nil, want directory")
+		}
+		if found.ID != created.ID {
+			t.Errorf("ID = %v, want %v", found.ID, created.ID)
+		}
+		if found.Path != "/home/user/docs" {
+			t.Errorf("Path = %v, want /home/user/docs", found.Path)
+		}
+	})
+}
+
+func TestSQLiteDatabase_CreateDirectory(t *testing.T) {
+	t.Run("creates directory successfully", func(t *testing.T) {
+		db := newTestDB(t)
+
+		dir, err := db.CreateDirectory("/home/user/docs")
+		if err != nil {
+			t.Fatalf("CreateDirectory() error = %v", err)
+		}
+
+		if dir.ID == "" {
+			t.Error("ID is empty")
+		}
+		if dir.Path != "/home/user/docs" {
+			t.Errorf("Path = %v, want /home/user/docs", dir.Path)
+		}
+		if dir.CreatedAt.IsZero() {
+			t.Error("CreatedAt is zero")
+		}
+	})
+
+	t.Run("fails on duplicate path", func(t *testing.T) {
+		db := newTestDB(t)
+
+		_, err := db.CreateDirectory("/home/user/docs")
+		if err != nil {
+			t.Fatalf("first CreateDirectory() error = %v", err)
+		}
+
+		_, err = db.CreateDirectory("/home/user/docs")
+		if err == nil {
+			t.Error("second CreateDirectory() expected error for duplicate path")
+		}
+	})
+
+	t.Run("creates multiple directories with different paths", func(t *testing.T) {
+		db := newTestDB(t)
+
+		dir1, err := db.CreateDirectory("/home/user/docs")
+		if err != nil {
+			t.Fatalf("CreateDirectory(/home/user/docs) error = %v", err)
+		}
+
+		dir2, err := db.CreateDirectory("/home/user/photos")
+		if err != nil {
+			t.Fatalf("CreateDirectory(/home/user/photos) error = %v", err)
+		}
+
+		if dir1.ID == dir2.ID {
+			t.Error("directories have same ID")
+		}
+	})
+
+	t.Run("consolidates child directories", func(t *testing.T) {
+		db := newTestDB(t)
+
+		// Create child directory first
+		childDir, err := db.CreateDirectory("/home/user/docs/subdir")
+		if err != nil {
+			t.Fatalf("CreateDirectory(child) error = %v", err)
+		}
+
+		// Add a file to the child directory
+		createTestFile(t, db, childDir.ID, "file.txt")
+
+		// Now create the parent directory - should consolidate
+		parentDir, err := db.CreateDirectory("/home/user/docs")
+		if err != nil {
+			t.Fatalf("CreateDirectory(parent) error = %v", err)
+		}
+
+		// Child directory should no longer exist
+		childFound, err := db.FindDirectoryByPath("/home/user/docs/subdir")
+		if err != nil {
+			t.Fatalf("FindDirectoryByPath(child) error = %v", err)
+		}
+		if childFound != nil {
+			t.Error("child directory should have been deleted")
+		}
+
+		// File should have been moved to parent with updated name
+		files, err := db.queries.GetFilesByDirectoryID(context.Background(), parentDir.ID)
+		if err != nil {
+			t.Fatalf("GetFilesByDirectoryID() error = %v", err)
+		}
+		if len(files) != 1 {
+			t.Fatalf("expected 1 file, got %d", len(files))
+		}
+		if files[0].Name != "subdir/file.txt" {
+			t.Errorf("file name = %q, want %q", files[0].Name, "subdir/file.txt")
+		}
+	})
+
+	t.Run("consolidates multiple nested child directories", func(t *testing.T) {
+		db := newTestDB(t)
+
+		// Create nested child directories
+		child1, err := db.CreateDirectory("/home/user/docs/a")
+		if err != nil {
+			t.Fatalf("CreateDirectory(a) error = %v", err)
+		}
+		child2, err := db.CreateDirectory("/home/user/docs/b")
+		if err != nil {
+			t.Fatalf("CreateDirectory(b) error = %v", err)
+		}
+
+		// Add files to each
+		createTestFile(t, db, child1.ID, "file1.txt")
+		createTestFile(t, db, child2.ID, "file2.txt")
+
+		// Create parent
+		parentDir, err := db.CreateDirectory("/home/user/docs")
+		if err != nil {
+			t.Fatalf("CreateDirectory(parent) error = %v", err)
+		}
+
+		// Both child directories should be deleted
+		for _, path := range []string{"/home/user/docs/a", "/home/user/docs/b"} {
+			found, _ := db.FindDirectoryByPath(path)
+			if found != nil {
+				t.Errorf("child directory %s should have been deleted", path)
+			}
+		}
+
+		// Both files should be in parent
+		files, err := db.queries.GetFilesByDirectoryID(context.Background(), parentDir.ID)
+		if err != nil {
+			t.Fatalf("GetFilesByDirectoryID() error = %v", err)
+		}
+		if len(files) != 2 {
+			t.Fatalf("expected 2 files, got %d", len(files))
+		}
+
+		// Check file names
+		names := make(map[string]bool)
+		for _, f := range files {
+			names[f.Name] = true
+		}
+		if !names["a/file1.txt"] {
+			t.Error("expected file a/file1.txt")
+		}
+		if !names["b/file2.txt"] {
+			t.Error("expected file b/file2.txt")
+		}
+	})
+}
+
+func TestSQLiteDatabase_FindDirectoriesByPathPrefix(t *testing.T) {
+	t.Run("finds child directories", func(t *testing.T) {
+		db := newTestDB(t)
+
+		// Create parent and children
+		db.CreateDirectory("/home/user/docs")
+		db.CreateDirectory("/home/user/docs/a")
+		db.CreateDirectory("/home/user/docs/b")
+		db.CreateDirectory("/home/user/photos") // not a child
+
+		dirs, err := db.FindDirectoriesByPathPrefix("/home/user/docs")
+		if err != nil {
+			t.Fatalf("FindDirectoriesByPathPrefix() error = %v", err)
+		}
+
+		if len(dirs) != 2 {
+			t.Fatalf("expected 2 directories, got %d", len(dirs))
+		}
+
+		paths := make(map[string]bool)
+		for _, d := range dirs {
+			paths[d.Path] = true
+		}
+		if !paths["/home/user/docs/a"] {
+			t.Error("expected /home/user/docs/a")
+		}
+		if !paths["/home/user/docs/b"] {
+			t.Error("expected /home/user/docs/b")
+		}
+	})
+
+	t.Run("returns empty for no children", func(t *testing.T) {
+		db := newTestDB(t)
+
+		db.CreateDirectory("/home/user/docs")
+
+		dirs, err := db.FindDirectoriesByPathPrefix("/home/user/docs")
+		if err != nil {
+			t.Fatalf("FindDirectoriesByPathPrefix() error = %v", err)
+		}
+		if len(dirs) != 0 {
+			t.Errorf("expected 0 directories, got %d", len(dirs))
+		}
+	})
+}
+
+func TestSQLiteDatabase_DeleteDirectory(t *testing.T) {
+	t.Run("deletes directory", func(t *testing.T) {
+		db := newTestDB(t)
+
+		dir, err := db.CreateDirectory("/home/user/docs")
+		if err != nil {
+			t.Fatalf("CreateDirectory() error = %v", err)
+		}
+
+		err = db.DeleteDirectory(dir)
+		if err != nil {
+			t.Fatalf("DeleteDirectory() error = %v", err)
+		}
+
+		found, err := db.FindDirectoryByPath("/home/user/docs")
+		if err != nil {
+			t.Fatalf("FindDirectoryByPath() error = %v", err)
+		}
+		if found != nil {
+			t.Error("directory should have been deleted")
+		}
+	})
+}
+
+// createTestFile is a helper to create a file in a directory for testing.
+func createTestFile(t *testing.T, db *SQLiteDatabase, directoryID, name string) {
+	t.Helper()
+
+	_, err := db.queries.InsertFile(context.Background(), sqlc.InsertFileParams{
+		ID:                uuid.New().String(),
+		Name:              name,
+		DirectoryID:       directoryID,
+		CurrentSnapshotID: sql.NullString{},
+		Deleted:           false,
+	})
+	if err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+}

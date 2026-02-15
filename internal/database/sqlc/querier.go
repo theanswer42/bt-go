@@ -9,13 +9,18 @@ import (
 )
 
 type Querier interface {
-	CreateDirectory(ctx context.Context, arg CreateDirectoryParams) (Directory, error)
+	DeleteDirectoryByID(ctx context.Context, id string) error
+	GetDirectoriesByPathPrefix(ctx context.Context, path string) ([]Directory, error)
 	// SQL queries for bt database operations
 	// sqlc will generate type-safe Go code from these queries
 	// See: https://docs.sqlc.dev/en/latest/
 	// Directory queries
-	GetDirectory(ctx context.Context, id string) (Directory, error)
-	ListDirectories(ctx context.Context) ([]Directory, error)
+	GetDirectoryByPath(ctx context.Context, path string) (Directory, error)
+	// File queries
+	GetFilesByDirectoryID(ctx context.Context, directoryID string) ([]File, error)
+	InsertDirectory(ctx context.Context, arg InsertDirectoryParams) (Directory, error)
+	InsertFile(ctx context.Context, arg InsertFileParams) (File, error)
+	UpdateFileDirectoryAndName(ctx context.Context, arg UpdateFileDirectoryAndNameParams) error
 }
 
 var _ Querier = (*Queries)(nil)
