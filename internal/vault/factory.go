@@ -15,7 +15,10 @@ func NewVaultFromConfig(cfg config.VaultConfig) (bt.Vault, error) {
 	case "s3":
 		return nil, fmt.Errorf("s3 vault not yet implemented")
 	case "filesystem":
-		return nil, fmt.Errorf("filesystem vault not yet implemented")
+		if cfg.FSVaultRoot == "" {
+			return nil, fmt.Errorf("filesystem vault requires fs_vault_root to be set")
+		}
+		return NewFileSystemVault(cfg.Name, cfg.FSVaultRoot)
 	default:
 		return nil, fmt.Errorf("unknown vault type: %s", cfg.Type)
 	}

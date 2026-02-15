@@ -16,6 +16,7 @@ type Config struct {
 	LogDir   string         `toml:"log_dir"`
 	Vaults   []VaultConfig  `toml:"vaults"`
 	Database DatabaseConfig `toml:"database"`
+	Staging  StagingConfig  `toml:"staging"`
 }
 
 // VaultConfig represents configuration for a vault backend.
@@ -36,8 +37,16 @@ type VaultConfig struct {
 // DatabaseConfig represents configuration for the metadata database.
 // This uses a tagged union pattern - the Type field determines which other fields are relevant.
 type DatabaseConfig struct {
-	Type    string `toml:"type"`              // "sqlite" or "memory"
+	Type    string `toml:"type"`               // "sqlite" or "memory"
 	DataDir string `toml:"data_dir,omitempty"` // only used for type=sqlite
+}
+
+// StagingConfig represents configuration for the staging area.
+// This uses a tagged union pattern - the Type field determines which other fields are relevant.
+type StagingConfig struct {
+	Type       string `toml:"type"`                  // "memory" or "filesystem"
+	StagingDir string `toml:"staging_dir,omitempty"` // only used for type=filesystem
+	MaxSize    int64  `toml:"max_size"`              // max total size in bytes; must be positive, defaults to 1MB
 }
 
 // NewConfig creates a new Config with the provided values.
