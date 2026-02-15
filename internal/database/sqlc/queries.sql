@@ -23,6 +23,9 @@ DELETE FROM directories WHERE id = ?;
 -- name: GetFilesByDirectoryID :many
 SELECT * FROM files WHERE directory_id = ?;
 
+-- name: GetFileByDirectoryAndName :one
+SELECT * FROM files WHERE directory_id = ? AND name = ? LIMIT 1;
+
 -- name: UpdateFileDirectoryAndName :exec
 UPDATE files SET directory_id = ?, name = ? WHERE id = ?;
 

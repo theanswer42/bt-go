@@ -33,9 +33,6 @@ type Database interface {
 	// FindOrCreateFile finds an existing file or creates a new one.
 	FindOrCreateFile(directory *sqlc.Directory, relativePath string) (*sqlc.File, error)
 
-	// MoveFiles moves all files from source directory to destination directory.
-	MoveFiles(sourceDir, destDir *sqlc.Directory) error
-
 	// FileSnapshot operations
 
 	// FindFileSnapshotsForFile returns all snapshots for a given file, ordered by creation time.

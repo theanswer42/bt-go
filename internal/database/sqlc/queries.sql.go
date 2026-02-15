@@ -64,6 +64,28 @@ func (q *Queries) GetDirectoryByPath(ctx context.Context, path string) (Director
 	return i, err
 }
 
+const getFileByDirectoryAndName = `-- name: GetFileByDirectoryAndName :one
+SELECT id, name, directory_id, current_snapshot_id, deleted FROM files WHERE directory_id = ? AND name = ? LIMIT 1
+`
+
+type GetFileByDirectoryAndNameParams struct {
+	DirectoryID string `json:"directory_id"`
+	Name        string `json:"name"`
+}
+
+func (q *Queries) GetFileByDirectoryAndName(ctx context.Context, arg GetFileByDirectoryAndNameParams) (File, error) {
+	row := q.db.QueryRowContext(ctx, getFileByDirectoryAndName, arg.DirectoryID, arg.Name)
+	var i File
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.DirectoryID,
+		&i.CurrentSnapshotID,
+		&i.Deleted,
+	)
+	return i, err
+}
+
 const getFilesByDirectoryID = `-- name: GetFilesByDirectoryID :many
 
 SELECT id, name, directory_id, current_snapshot_id, deleted FROM files WHERE directory_id = ?

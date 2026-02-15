@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -304,4 +305,137 @@ func createTestFile(t *testing.T, db *SQLiteDatabase, directoryID, name string) 
 	if err != nil {
 		t.Fatalf("failed to create test file: %v", err)
 	}
+}
+
+func TestSQLiteDatabase_SearchDirectoryForPath(t *testing.T) {
+	t.Run("finds directory containing path", func(t *testing.T) {
+		db := newTestDB(t)
+
+		dir, err := db.CreateDirectory("/home/user/docs")
+		if err != nil {
+			t.Fatalf("CreateDirectory() error = %v", err)
+		}
+
+		found, err := db.SearchDirectoryForPath("/home/user/docs/file.txt")
+		if err != nil {
+			t.Fatalf("SearchDirectoryForPath() error = %v", err)
+		}
+		if found == nil {
+			t.Fatal("expected to find directory")
+		}
+		if found.ID != dir.ID {
+			t.Errorf("found wrong directory: got %s, want %s", found.ID, dir.ID)
+		}
+	})
+
+	t.Run("returns nil for path not in any directory", func(t *testing.T) {
+		db := newTestDB(t)
+
+		db.CreateDirectory("/home/user/docs")
+
+		found, err := db.SearchDirectoryForPath("/home/user/photos/image.jpg")
+		if err != nil {
+			t.Fatalf("SearchDirectoryForPath() error = %v", err)
+		}
+		if found != nil {
+			t.Errorf("expected nil, got %v", found)
+		}
+	})
+
+	t.Run("finds shortest matching prefix with nested directories", func(t *testing.T) {
+		db := newTestDB(t)
+
+		// Create parent first, then child (unusual but possible)
+		parent, _ := db.CreateDirectory("/home/user/docs")
+		// Manually create child to simulate unusual state
+		db.queries.InsertDirectory(context.Background(), sqlc.InsertDirectoryParams{
+			ID:        "child-id",
+			Path:      "/home/user/docs/subdir",
+			CreatedAt: time.Now(),
+		})
+
+		found, err := db.SearchDirectoryForPath("/home/user/docs/subdir/file.txt")
+		if err != nil {
+			t.Fatalf("SearchDirectoryForPath() error = %v", err)
+		}
+		if found == nil {
+			t.Fatal("expected to find directory")
+		}
+		// Should return the parent (shortest prefix) not the child
+		if found.ID != parent.ID {
+			t.Errorf("expected parent directory, got %s", found.Path)
+		}
+	})
+}
+
+func TestSQLiteDatabase_FindFileByPath(t *testing.T) {
+	t.Run("finds existing file", func(t *testing.T) {
+		db := newTestDB(t)
+
+		dir, _ := db.CreateDirectory("/home/user/docs")
+		createTestFile(t, db, dir.ID, "file.txt")
+
+		file, err := db.FindFileByPath(dir, "file.txt")
+		if err != nil {
+			t.Fatalf("FindFileByPath() error = %v", err)
+		}
+		if file == nil {
+			t.Fatal("expected to find file")
+		}
+		if file.Name != "file.txt" {
+			t.Errorf("Name = %s, want file.txt", file.Name)
+		}
+	})
+
+	t.Run("returns nil for non-existent file", func(t *testing.T) {
+		db := newTestDB(t)
+
+		dir, _ := db.CreateDirectory("/home/user/docs")
+
+		file, err := db.FindFileByPath(dir, "nonexistent.txt")
+		if err != nil {
+			t.Fatalf("FindFileByPath() error = %v", err)
+		}
+		if file != nil {
+			t.Errorf("expected nil, got %v", file)
+		}
+	})
+}
+
+func TestSQLiteDatabase_FindOrCreateFile(t *testing.T) {
+	t.Run("creates new file", func(t *testing.T) {
+		db := newTestDB(t)
+
+		dir, _ := db.CreateDirectory("/home/user/docs")
+
+		file, err := db.FindOrCreateFile(dir, "newfile.txt")
+		if err != nil {
+			t.Fatalf("FindOrCreateFile() error = %v", err)
+		}
+		if file == nil {
+			t.Fatal("expected file to be created")
+		}
+		if file.Name != "newfile.txt" {
+			t.Errorf("Name = %s, want newfile.txt", file.Name)
+		}
+		if file.DirectoryID != dir.ID {
+			t.Errorf("DirectoryID = %s, want %s", file.DirectoryID, dir.ID)
+		}
+	})
+
+	t.Run("finds existing file", func(t *testing.T) {
+		db := newTestDB(t)
+
+		dir, _ := db.CreateDirectory("/home/user/docs")
+		createTestFile(t, db, dir.ID, "existing.txt")
+
+		file1, _ := db.FindFileByPath(dir, "existing.txt")
+		file2, err := db.FindOrCreateFile(dir, "existing.txt")
+		if err != nil {
+			t.Fatalf("FindOrCreateFile() error = %v", err)
+		}
+		if file2.ID != file1.ID {
+			t.Errorf("expected same file ID, got %s and %s", file1.ID, file2.ID)
+		}
+	})
 }

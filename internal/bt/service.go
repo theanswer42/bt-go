@@ -1,6 +1,9 @@
 package bt
 
-import "fmt"
+import (
+	"fmt"
+	"path/filepath"
+)
 
 // BTService is the orchestration layer that coordinates across all components
 // to perform high-level backup operations needed by the CLI.
@@ -43,6 +46,42 @@ func (s *BTService) AddDirectory(path *Path) error {
 	_, err = s.database.CreateDirectory(path.String())
 	if err != nil {
 		return fmt.Errorf("creating directory: %w", err)
+	}
+
+	return nil
+}
+
+// StageFile stages a file for backup.
+// The path must point to a regular file within a tracked directory.
+func (s *BTService) StageFile(path *Path) error {
+	if path.IsDir() {
+		return fmt.Errorf("path is a directory, not a file: %s", path.String())
+	}
+
+	// Find the directory that contains this file
+	directory, err := s.database.SearchDirectoryForPath(path.String())
+	if err != nil {
+		return fmt.Errorf("searching for directory: %w", err)
+	}
+	if directory == nil {
+		return fmt.Errorf("file is not within a tracked directory: %s", path.String())
+	}
+
+	// Calculate the relative path within the directory
+	relativePath, err := filepath.Rel(directory.Path, path.String())
+	if err != nil {
+		return fmt.Errorf("calculating relative path: %w", err)
+	}
+
+	// Find or create the file record
+	file, err := s.database.FindOrCreateFile(directory, relativePath)
+	if err != nil {
+		return fmt.Errorf("finding or creating file: %w", err)
+	}
+
+	// Stage the file for backup
+	if err := s.stagingArea.Stage(directory, file, path); err != nil {
+		return fmt.Errorf("staging file: %w", err)
 	}
 
 	return nil

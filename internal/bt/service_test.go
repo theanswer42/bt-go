@@ -75,9 +75,6 @@ func (m *mockDatabase) FindFileByPath(directory *sqlc.Directory, relativePath st
 func (m *mockDatabase) FindOrCreateFile(directory *sqlc.Directory, relativePath string) (*sqlc.File, error) {
 	return nil, fmt.Errorf("not implemented")
 }
-func (m *mockDatabase) MoveFiles(sourceDir, destDir *sqlc.Directory) error {
-	return fmt.Errorf("not implemented")
-}
 func (m *mockDatabase) FindFileSnapshotsForFile(file *sqlc.File) ([]*sqlc.FileSnapshot, error) {
 	return nil, fmt.Errorf("not implemented")
 }

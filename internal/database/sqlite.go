@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,7 +75,39 @@ func (s *SQLiteDatabase) FindDirectoryByPath(path string) (*sqlc.Directory, erro
 }
 
 func (s *SQLiteDatabase) SearchDirectoryForPath(path string) (*sqlc.Directory, error) {
-	return nil, fmt.Errorf("not implemented")
+	// Search for the shortest directory path that is a prefix of the given path.
+	// We use shortest (not longest) to be consistent with our consolidation behavior -
+	// child directories get merged into parent directories.
+	ctx := context.Background()
+
+	// Get all directories
+	dirs, err := s.queries.GetDirectoriesByPathPrefix(ctx, "/%")
+	if err != nil {
+		return nil, fmt.Errorf("searching directories: %w", err)
+	}
+
+	var bestMatch *sqlc.Directory
+
+	for i := range dirs {
+		dir := &dirs[i]
+		// Check if this directory is a prefix of the path
+		if path == dir.Path {
+			// Exact match - if we're searching for a directory itself, return it
+			// But prefer shorter matches if we already have one
+			if bestMatch == nil || len(dir.Path) < len(bestMatch.Path) {
+				bestMatch = dir
+			}
+			continue
+		}
+		// Check if path is inside this directory
+		if len(path) > len(dir.Path) && path[:len(dir.Path)] == dir.Path && path[len(dir.Path)] == '/' {
+			if bestMatch == nil || len(dir.Path) < len(bestMatch.Path) {
+				bestMatch = dir
+			}
+		}
+	}
+
+	return bestMatch, nil
 }
 
 func (s *SQLiteDatabase) CreateDirectory(path string) (*sqlc.Directory, error) {
@@ -175,47 +206,41 @@ func (s *SQLiteDatabase) DeleteDirectory(directory *sqlc.Directory) error {
 // File operations
 
 func (s *SQLiteDatabase) FindFileByPath(directory *sqlc.Directory, relativePath string) (*sqlc.File, error) {
-	return nil, fmt.Errorf("not implemented")
+	file, err := s.queries.GetFileByDirectoryAndName(context.Background(), sqlc.GetFileByDirectoryAndNameParams{
+		DirectoryID: directory.ID,
+		Name:        relativePath,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // Not found
+		}
+		return nil, fmt.Errorf("finding file by path: %w", err)
+	}
+	return &file, nil
 }
 
 func (s *SQLiteDatabase) FindOrCreateFile(directory *sqlc.Directory, relativePath string) (*sqlc.File, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLiteDatabase) MoveFiles(sourceDir, destDir *sqlc.Directory) error {
-	ctx := context.Background()
-
-	// Get all files in the source directory
-	files, err := s.queries.GetFilesByDirectoryID(ctx, sourceDir.ID)
+	// Try to find existing file first
+	file, err := s.FindFileByPath(directory, relativePath)
 	if err != nil {
-		return fmt.Errorf("getting files from source directory: %w", err)
+		return nil, err
+	}
+	if file != nil {
+		return file, nil
 	}
 
-	// Calculate the relative path prefix for files being moved
-	relPath, err := filepath.Rel(destDir.Path, sourceDir.Path)
+	// Create new file
+	newFile, err := s.queries.InsertFile(context.Background(), sqlc.InsertFileParams{
+		ID:                uuid.New().String(),
+		Name:              relativePath,
+		DirectoryID:       directory.ID,
+		CurrentSnapshotID: sql.NullString{}, // No snapshot yet
+		Deleted:           false,
+	})
 	if err != nil {
-		return fmt.Errorf("calculating relative path: %w", err)
+		return nil, fmt.Errorf("creating file: %w", err)
 	}
-
-	// Move each file to the destination directory with updated name
-	for _, file := range files {
-		newName := file.Name
-		// Only prepend relPath if source is a subdirectory of dest
-		if !strings.HasPrefix(relPath, "..") {
-			newName = filepath.Join(relPath, file.Name)
-		}
-
-		err := s.queries.UpdateFileDirectoryAndName(ctx, sqlc.UpdateFileDirectoryAndNameParams{
-			DirectoryID: destDir.ID,
-			Name:        newName,
-			ID:          file.ID,
-		})
-		if err != nil {
-			return fmt.Errorf("moving file %s: %w", file.Name, err)
-		}
-	}
-
-	return nil
+	return &newFile, nil
 }
 
 // FileSnapshot operations

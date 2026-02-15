@@ -16,6 +16,7 @@ type Querier interface {
 	// See: https://docs.sqlc.dev/en/latest/
 	// Directory queries
 	GetDirectoryByPath(ctx context.Context, path string) (Directory, error)
+	GetFileByDirectoryAndName(ctx context.Context, arg GetFileByDirectoryAndNameParams) (File, error)
 	// File queries
 	GetFilesByDirectoryID(ctx context.Context, directoryID string) ([]File, error)
 	InsertDirectory(ctx context.Context, arg InsertDirectoryParams) (Directory, error)
