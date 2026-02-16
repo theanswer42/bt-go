@@ -10,6 +10,8 @@ import (
 
 type Querier interface {
 	DeleteDirectoryByID(ctx context.Context, id string) error
+	// Content queries
+	GetContentByID(ctx context.Context, id string) (Content, error)
 	GetDirectoriesByPathPrefix(ctx context.Context, path string) ([]Directory, error)
 	// SQL queries for bt database operations
 	// sqlc will generate type-safe Go code from these queries
@@ -17,10 +19,16 @@ type Querier interface {
 	// Directory queries
 	GetDirectoryByPath(ctx context.Context, path string) (Directory, error)
 	GetFileByDirectoryAndName(ctx context.Context, arg GetFileByDirectoryAndNameParams) (File, error)
+	GetFileSnapshotByFileAndContent(ctx context.Context, arg GetFileSnapshotByFileAndContentParams) (FileSnapshot, error)
+	// FileSnapshot queries
+	GetFileSnapshotsByFileID(ctx context.Context, fileID string) ([]FileSnapshot, error)
 	// File queries
 	GetFilesByDirectoryID(ctx context.Context, directoryID string) ([]File, error)
+	InsertContent(ctx context.Context, arg InsertContentParams) (Content, error)
 	InsertDirectory(ctx context.Context, arg InsertDirectoryParams) (Directory, error)
 	InsertFile(ctx context.Context, arg InsertFileParams) (File, error)
+	InsertFileSnapshot(ctx context.Context, arg InsertFileSnapshotParams) (FileSnapshot, error)
+	UpdateFileCurrentSnapshot(ctx context.Context, arg UpdateFileCurrentSnapshotParams) error
 	UpdateFileDirectoryAndName(ctx context.Context, arg UpdateFileDirectoryAndNameParams) error
 }
 

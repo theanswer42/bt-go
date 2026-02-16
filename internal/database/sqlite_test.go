@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 	"database/sql"
-	_ "embed"
 	"testing"
 	"time"
 
@@ -11,9 +10,6 @@ import (
 
 	"bt-go/internal/database/sqlc"
 )
-
-//go:embed sqlc/schema.sql
-var schemaSQL string
 
 // newTestDB creates a new in-memory database with schema applied.
 func newTestDB(t *testing.T) *SQLiteDatabase {
@@ -24,7 +20,7 @@ func newTestDB(t *testing.T) *SQLiteDatabase {
 		t.Fatalf("failed to create database: %v", err)
 	}
 
-	if _, err := db.db.Exec(schemaSQL); err != nil {
+	if _, err := db.db.Exec(Schema); err != nil {
 		db.Close()
 		t.Fatalf("failed to apply schema: %v", err)
 	}

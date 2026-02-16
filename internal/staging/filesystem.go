@@ -56,7 +56,7 @@ func NewFileSystemStagingArea(fsmgr bt.FilesystemManager, stagingDir string, max
 func (f *FileSystemStagingArea) Stage(directory *sqlc.Directory, file *sqlc.File, path *bt.Path) error {
 	// 1. Get initial stat from the path
 	info1 := path.Info()
-	stat1, err := extractStatData(info1)
+	stat1, err := f.fsmgr.ExtractStatData(info1)
 	if err != nil {
 		return fmt.Errorf("extracting stat data: %w", err)
 	}
@@ -80,7 +80,7 @@ func (f *FileSystemStagingArea) Stage(directory *sqlc.Directory, file *sqlc.File
 		f.removeContent(checksum)
 		return fmt.Errorf("re-stat file: %w", err)
 	}
-	stat2, err := extractStatData(info2)
+	stat2, err := f.fsmgr.ExtractStatData(info2)
 	if err != nil {
 		f.removeContent(checksum)
 		return fmt.Errorf("extracting re-stat data: %w", err)
@@ -103,7 +103,7 @@ func (f *FileSystemStagingArea) Stage(directory *sqlc.Directory, file *sqlc.File
 	}
 
 	// 6. Add operation to queue
-	op := &bt.StagedOperation{
+	op := &stagedOperation{
 		DirectoryID: directory.ID,
 		Snapshot: sqlc.FileSnapshot{
 			FileID:      file.ID,
@@ -127,56 +127,61 @@ func (f *FileSystemStagingArea) Stage(directory *sqlc.Directory, file *sqlc.File
 	return nil
 }
 
-// Next returns the next staged operation from the queue.
-func (f *FileSystemStagingArea) Next() (*bt.StagedOperation, error) {
+// ProcessNext gets the next staged operation and calls fn with its data.
+// If fn returns nil, the staged operation is removed (committed).
+// If fn returns an error, the operation stays in queue for retry.
+// Returns nil with no error if the queue is empty.
+func (f *FileSystemStagingArea) ProcessNext(fn bt.BackupFunc) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-
 	queue, err := f.readQueue()
 	if err != nil {
-		return nil, err
+		f.mu.Unlock()
+		return err
 	}
-
 	if len(queue) == 0 {
-		return nil, nil
+		f.mu.Unlock()
+		return nil
 	}
-	return queue[0], nil
-}
+	op := queue[0]
+	f.mu.Unlock()
 
-// GetContent returns a reader for the staged content by checksum.
-func (f *FileSystemStagingArea) GetContent(checksum string) (io.ReadCloser, error) {
+	// Open the content file
+	checksum := op.Snapshot.ContentID
 	contentPath := filepath.Join(f.contentDir, checksum)
-	file, err := os.Open(contentPath)
+	contentFile, err := os.Open(contentPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("content not found: %s", checksum)
+			return fmt.Errorf("content not found: %s", checksum)
 		}
-		return nil, fmt.Errorf("opening content file: %w", err)
+		return fmt.Errorf("opening content file: %w", err)
 	}
-	return file, nil
-}
+	defer contentFile.Close()
 
-// Remove removes a staged operation after successful backup.
-func (f *FileSystemStagingArea) Remove(op *bt.StagedOperation) error {
+	// Call the backup function
+	if err := fn(contentFile, op.Snapshot, op.DirectoryID); err != nil {
+		return err
+	}
+
+	// Success - remove the operation
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	queue, err := f.readQueue()
+	// Re-read queue to get current state
+	queue, err = f.readQueue()
 	if err != nil {
 		return err
 	}
 
-	// Find and remove from queue
-	found := false
-	checksum := op.Snapshot.ContentID
+	// Find and remove from queue, count remaining refs to this checksum
+	newQueue := make([]*stagedOperation, 0, len(queue))
 	checksumCount := 0
-	newQueue := make([]*bt.StagedOperation, 0, len(queue))
+	removed := false
 
 	for _, queued := range queue {
-		if !found && queued.Snapshot.FileID == op.Snapshot.FileID &&
+		if !removed && queued.Snapshot.FileID == op.Snapshot.FileID &&
 			queued.Snapshot.ContentID == op.Snapshot.ContentID {
-			found = true
-			continue // skip this one
+			removed = true
+			continue
 		}
 		newQueue = append(newQueue, queued)
 		if queued.Snapshot.ContentID == checksum {
@@ -184,11 +189,6 @@ func (f *FileSystemStagingArea) Remove(op *bt.StagedOperation) error {
 		}
 	}
 
-	if !found {
-		return fmt.Errorf("operation not found in queue")
-	}
-
-	// Write updated queue
 	if err := f.writeQueue(newQueue); err != nil {
 		return err
 	}
@@ -290,16 +290,16 @@ func (f *FileSystemStagingArea) removeContent(checksum string) {
 }
 
 // readQueue reads the queue from disk.
-func (f *FileSystemStagingArea) readQueue() ([]*bt.StagedOperation, error) {
+func (f *FileSystemStagingArea) readQueue() ([]*stagedOperation, error) {
 	data, err := os.ReadFile(f.queueFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []*bt.StagedOperation{}, nil
+			return []*stagedOperation{}, nil
 		}
 		return nil, fmt.Errorf("reading queue file: %w", err)
 	}
 
-	var queue []*bt.StagedOperation
+	var queue []*stagedOperation
 	if err := json.Unmarshal(data, &queue); err != nil {
 		return nil, fmt.Errorf("parsing queue file: %w", err)
 	}
@@ -308,7 +308,7 @@ func (f *FileSystemStagingArea) readQueue() ([]*bt.StagedOperation, error) {
 }
 
 // writeQueue writes the queue to disk.
-func (f *FileSystemStagingArea) writeQueue(queue []*bt.StagedOperation) error {
+func (f *FileSystemStagingArea) writeQueue(queue []*stagedOperation) error {
 	data, err := json.MarshalIndent(queue, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling queue: %w", err)
@@ -322,7 +322,7 @@ func (f *FileSystemStagingArea) writeQueue(queue []*bt.StagedOperation) error {
 }
 
 // appendToQueue adds an operation to the queue.
-func (f *FileSystemStagingArea) appendToQueue(op *bt.StagedOperation) error {
+func (f *FileSystemStagingArea) appendToQueue(op *stagedOperation) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

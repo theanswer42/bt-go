@@ -33,3 +33,29 @@ UPDATE files SET directory_id = ?, name = ? WHERE id = ?;
 INSERT INTO files (id, name, directory_id, current_snapshot_id, deleted)
 VALUES (?, ?, ?, ?, ?)
 RETURNING *;
+
+-- name: UpdateFileCurrentSnapshot :exec
+UPDATE files SET current_snapshot_id = ? WHERE id = ?;
+
+-- FileSnapshot queries
+
+-- name: GetFileSnapshotsByFileID :many
+SELECT * FROM file_snapshots WHERE file_id = ? ORDER BY created_at;
+
+-- name: GetFileSnapshotByFileAndContent :one
+SELECT * FROM file_snapshots WHERE file_id = ? AND content_id = ? LIMIT 1;
+
+-- name: InsertFileSnapshot :one
+INSERT INTO file_snapshots (id, file_id, content_id, created_at, size, permissions, uid, gid, accessed_at, modified_at, changed_at, born_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING *;
+
+-- Content queries
+
+-- name: GetContentByID :one
+SELECT * FROM contents WHERE id = ? LIMIT 1;
+
+-- name: InsertContent :one
+INSERT INTO contents (id, created_at)
+VALUES (?, ?)
+RETURNING *;

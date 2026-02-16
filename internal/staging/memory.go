@@ -20,9 +20,9 @@ type MemoryStagingArea struct {
 	fsmgr       bt.FilesystemManager
 	maxSize     int64
 	currentSize int64
-	content     map[string][]byte       // checksum -> content
-	queue       []*bt.StagedOperation   // ordered queue of operations
-	refCount    map[string]int          // checksum -> number of operations referencing it
+	content     map[string][]byte      // checksum -> content
+	queue       []*stagedOperation     // ordered queue of operations
+	refCount    map[string]int         // checksum -> number of operations referencing it
 	mu          sync.Mutex
 }
 
@@ -33,7 +33,7 @@ func NewMemoryStagingArea(fsmgr bt.FilesystemManager, maxSize int64) *MemoryStag
 		fsmgr:    fsmgr,
 		maxSize:  maxSize,
 		content:  make(map[string][]byte),
-		queue:    make([]*bt.StagedOperation, 0),
+		queue:    make([]*stagedOperation, 0),
 		refCount: make(map[string]int),
 	}
 }
@@ -42,7 +42,7 @@ func NewMemoryStagingArea(fsmgr bt.FilesystemManager, maxSize int64) *MemoryStag
 func (m *MemoryStagingArea) Stage(directory *sqlc.Directory, file *sqlc.File, path *bt.Path) error {
 	// 1. Get initial stat from the path
 	info1 := path.Info()
-	stat1, err := extractStatData(info1)
+	stat1, err := m.fsmgr.ExtractStatData(info1)
 	if err != nil {
 		return fmt.Errorf("extracting stat data: %w", err)
 	}
@@ -64,7 +64,7 @@ func (m *MemoryStagingArea) Stage(directory *sqlc.Directory, file *sqlc.File, pa
 	if err != nil {
 		return fmt.Errorf("re-stat file: %w", err)
 	}
-	stat2, err := extractStatData(info2)
+	stat2, err := m.fsmgr.ExtractStatData(info2)
 	if err != nil {
 		return fmt.Errorf("extracting re-stat data: %w", err)
 	}
@@ -88,7 +88,7 @@ func (m *MemoryStagingArea) Stage(directory *sqlc.Directory, file *sqlc.File, pa
 	}
 
 	// 5. Add operation to queue
-	op := &bt.StagedOperation{
+	op := &stagedOperation{
 		DirectoryID: directory.ID,
 		Snapshot: sqlc.FileSnapshot{
 			FileID:      file.ID,
@@ -109,53 +109,48 @@ func (m *MemoryStagingArea) Stage(directory *sqlc.Directory, file *sqlc.File, pa
 	return nil
 }
 
-// Next returns the next staged operation from the queue.
-func (m *MemoryStagingArea) Next() (*bt.StagedOperation, error) {
+// ProcessNext gets the next staged operation and calls fn with its data.
+// If fn returns nil, the staged operation is removed (committed).
+// If fn returns an error, the operation stays in queue for retry.
+// Returns nil with no error if the queue is empty.
+func (m *MemoryStagingArea) ProcessNext(fn bt.BackupFunc) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if len(m.queue) == 0 {
-		return nil, nil
+		m.mu.Unlock()
+		return nil
 	}
-	return m.queue[0], nil
-}
-
-// GetContent returns a reader for the staged content by checksum.
-func (m *MemoryStagingArea) GetContent(checksum string) (io.ReadCloser, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	op := m.queue[0]
+	checksum := op.Snapshot.ContentID
 	content, ok := m.content[checksum]
 	if !ok {
-		return nil, fmt.Errorf("content not found: %s", checksum)
+		m.mu.Unlock()
+		return fmt.Errorf("content not found: %s", checksum)
 	}
-	return io.NopCloser(bytes.NewReader(content)), nil
-}
+	// Make a copy of content so we can release the lock during callback
+	contentCopy := make([]byte, len(content))
+	copy(contentCopy, content)
+	m.mu.Unlock()
 
-// Remove removes a staged operation after successful backup.
-func (m *MemoryStagingArea) Remove(op *bt.StagedOperation) error {
+	// Call the backup function
+	reader := bytes.NewReader(contentCopy)
+	if err := fn(reader, op.Snapshot, op.DirectoryID); err != nil {
+		return err
+	}
+
+	// Success - remove the operation
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Find and remove from queue
-	found := false
-	for i, queued := range m.queue {
-		if queued == op {
-			m.queue = append(m.queue[:i], m.queue[i+1:]...)
-			found = true
-			break
-		}
-	}
-	if !found {
-		return fmt.Errorf("operation not found in queue")
+	// Remove from queue
+	if len(m.queue) > 0 && m.queue[0] == op {
+		m.queue = m.queue[1:]
 	}
 
 	// Decrement ref count and remove content if no more references
-	checksum := op.Snapshot.ContentID
 	m.refCount[checksum]--
 	if m.refCount[checksum] <= 0 {
-		if content, ok := m.content[checksum]; ok {
-			m.currentSize -= int64(len(content))
+		if c, ok := m.content[checksum]; ok {
+			m.currentSize -= int64(len(c))
 			delete(m.content, checksum)
 		}
 		delete(m.refCount, checksum)
@@ -194,7 +189,7 @@ func (m *MemoryStagingArea) readAndHash(r io.Reader) ([]byte, string, error) {
 
 // validateStatUnchanged checks that file metadata hasn't changed.
 // We ignore access time as it may change from our read.
-func validateStatUnchanged(info1, info2 fs.FileInfo, stat1, stat2 *statData) error {
+func validateStatUnchanged(info1, info2 fs.FileInfo, stat1, stat2 *bt.StatData) error {
 	if info1.Size() != info2.Size() {
 		return fmt.Errorf("size changed: %d -> %d", info1.Size(), info2.Size())
 	}

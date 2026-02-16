@@ -2,7 +2,13 @@ package bt
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
+	"time"
+
+	"bt-go/internal/database/sqlc"
+
+	"github.com/google/uuid"
 )
 
 // BTService is the orchestration layer that coordinates across all components
@@ -10,16 +16,18 @@ import (
 type BTService struct {
 	database    Database
 	stagingArea StagingArea
-	vaults      []Vault
+	vault       Vault
 	fsmgr       FilesystemManager
 }
 
 // NewBTService creates a new BTService with the provided dependencies.
-func NewBTService(database Database, stagingArea StagingArea, vaults []Vault, fsmgr FilesystemManager) *BTService {
+// Currently only a single vault is supported; multiple vaults require additional
+// implementation work (content seeking, transaction handling across vaults).
+func NewBTService(database Database, stagingArea StagingArea, vault Vault, fsmgr FilesystemManager) *BTService {
 	return &BTService{
 		database:    database,
 		stagingArea: stagingArea,
-		vaults:      vaults,
+		vault:       vault,
 		fsmgr:       fsmgr,
 	}
 }
@@ -82,6 +90,100 @@ func (s *BTService) StageFile(path *Path) error {
 	// Stage the file for backup
 	if err := s.stagingArea.Stage(directory, file, path); err != nil {
 		return fmt.Errorf("staging file: %w", err)
+	}
+
+	return nil
+}
+
+// BackupAll processes all staged files and backs them up to the vault(s).
+// Returns the number of files successfully backed up.
+func (s *BTService) BackupAll() (int, error) {
+	count := 0
+
+	for {
+		// Check if there are any staged items left
+		queueSize, err := s.stagingArea.Count()
+		if err != nil {
+			return count, fmt.Errorf("checking staging queue: %w", err)
+		}
+		if queueSize == 0 {
+			break
+		}
+
+		// Process the next staged item
+		err = s.stagingArea.ProcessNext(func(content io.Reader, snapshot sqlc.FileSnapshot, directoryID string) error {
+			return s.backupFile(content, snapshot)
+		})
+		if err != nil {
+			return count, fmt.Errorf("backing up file: %w", err)
+		}
+
+		count++
+	}
+
+	return count, nil
+}
+
+// backupFile handles the backup of a single file's content and metadata.
+func (s *BTService) backupFile(content io.Reader, snapshot sqlc.FileSnapshot) error {
+	checksum := snapshot.ContentID
+
+	// Check if content already exists in the database (and thus in vault)
+	existingContent, err := s.database.FindContentByChecksum(checksum)
+	if err != nil {
+		return fmt.Errorf("checking for existing content: %w", err)
+	}
+
+	if existingContent == nil {
+		// Upload content to vault
+		if err := s.vault.PutContent(checksum, content, snapshot.Size); err != nil {
+			return fmt.Errorf("uploading to vault: %w", err)
+		}
+
+		// Create content record in database
+		if _, err := s.database.CreateContent(checksum); err != nil {
+			return fmt.Errorf("creating content record: %w", err)
+		}
+	}
+
+	// Create a file object to check for existing snapshot
+	file := &sqlc.File{ID: snapshot.FileID}
+
+	// Check if this exact snapshot already exists (same file + same content)
+	existingSnapshot, err := s.database.FindFileSnapshotByChecksum(file, checksum)
+	if err != nil {
+		return fmt.Errorf("checking for existing snapshot: %w", err)
+	}
+
+	var snapshotID string
+	if existingSnapshot != nil {
+		// Snapshot already exists, just use its ID
+		snapshotID = existingSnapshot.ID
+	} else {
+		// Create new snapshot
+		snapshotID = uuid.New().String()
+		newSnapshot := &sqlc.FileSnapshot{
+			ID:          snapshotID,
+			FileID:      snapshot.FileID,
+			ContentID:   checksum,
+			CreatedAt:   time.Now(),
+			Size:        snapshot.Size,
+			Permissions: snapshot.Permissions,
+			Uid:         snapshot.Uid,
+			Gid:         snapshot.Gid,
+			AccessedAt:  snapshot.AccessedAt,
+			ModifiedAt:  snapshot.ModifiedAt,
+			ChangedAt:   snapshot.ChangedAt,
+			BornAt:      snapshot.BornAt,
+		}
+		if err := s.database.CreateFileSnapshot(newSnapshot); err != nil {
+			return fmt.Errorf("creating file snapshot: %w", err)
+		}
+	}
+
+	// Update the file's current snapshot pointer
+	if err := s.database.UpdateFileCurrentSnapshot(file, snapshotID); err != nil {
+		return fmt.Errorf("updating file current snapshot: %w", err)
 	}
 
 	return nil

@@ -20,6 +20,19 @@ func (q *Queries) DeleteDirectoryByID(ctx context.Context, id string) error {
 	return err
 }
 
+const getContentByID = `-- name: GetContentByID :one
+
+SELECT id, created_at FROM contents WHERE id = ? LIMIT 1
+`
+
+// Content queries
+func (q *Queries) GetContentByID(ctx context.Context, id string) (Content, error) {
+	row := q.db.QueryRowContext(ctx, getContentByID, id)
+	var i Content
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
+}
+
 const getDirectoriesByPathPrefix = `-- name: GetDirectoriesByPathPrefix :many
 SELECT id, path, created_at FROM directories WHERE path LIKE ?1 ORDER BY path
 `
@@ -86,6 +99,77 @@ func (q *Queries) GetFileByDirectoryAndName(ctx context.Context, arg GetFileByDi
 	return i, err
 }
 
+const getFileSnapshotByFileAndContent = `-- name: GetFileSnapshotByFileAndContent :one
+SELECT id, file_id, content_id, created_at, size, permissions, uid, gid, accessed_at, modified_at, changed_at, born_at FROM file_snapshots WHERE file_id = ? AND content_id = ? LIMIT 1
+`
+
+type GetFileSnapshotByFileAndContentParams struct {
+	FileID    string `json:"file_id"`
+	ContentID string `json:"content_id"`
+}
+
+func (q *Queries) GetFileSnapshotByFileAndContent(ctx context.Context, arg GetFileSnapshotByFileAndContentParams) (FileSnapshot, error) {
+	row := q.db.QueryRowContext(ctx, getFileSnapshotByFileAndContent, arg.FileID, arg.ContentID)
+	var i FileSnapshot
+	err := row.Scan(
+		&i.ID,
+		&i.FileID,
+		&i.ContentID,
+		&i.CreatedAt,
+		&i.Size,
+		&i.Permissions,
+		&i.Uid,
+		&i.Gid,
+		&i.AccessedAt,
+		&i.ModifiedAt,
+		&i.ChangedAt,
+		&i.BornAt,
+	)
+	return i, err
+}
+
+const getFileSnapshotsByFileID = `-- name: GetFileSnapshotsByFileID :many
+
+SELECT id, file_id, content_id, created_at, size, permissions, uid, gid, accessed_at, modified_at, changed_at, born_at FROM file_snapshots WHERE file_id = ? ORDER BY created_at
+`
+
+// FileSnapshot queries
+func (q *Queries) GetFileSnapshotsByFileID(ctx context.Context, fileID string) ([]FileSnapshot, error) {
+	rows, err := q.db.QueryContext(ctx, getFileSnapshotsByFileID, fileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FileSnapshot
+	for rows.Next() {
+		var i FileSnapshot
+		if err := rows.Scan(
+			&i.ID,
+			&i.FileID,
+			&i.ContentID,
+			&i.CreatedAt,
+			&i.Size,
+			&i.Permissions,
+			&i.Uid,
+			&i.Gid,
+			&i.AccessedAt,
+			&i.ModifiedAt,
+			&i.ChangedAt,
+			&i.BornAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getFilesByDirectoryID = `-- name: GetFilesByDirectoryID :many
 
 SELECT id, name, directory_id, current_snapshot_id, deleted FROM files WHERE directory_id = ?
@@ -119,6 +203,24 @@ func (q *Queries) GetFilesByDirectoryID(ctx context.Context, directoryID string)
 		return nil, err
 	}
 	return items, nil
+}
+
+const insertContent = `-- name: InsertContent :one
+INSERT INTO contents (id, created_at)
+VALUES (?, ?)
+RETURNING id, created_at
+`
+
+type InsertContentParams struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (q *Queries) InsertContent(ctx context.Context, arg InsertContentParams) (Content, error) {
+	row := q.db.QueryRowContext(ctx, insertContent, arg.ID, arg.CreatedAt)
+	var i Content
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
 }
 
 const insertDirectory = `-- name: InsertDirectory :one
@@ -171,6 +273,74 @@ func (q *Queries) InsertFile(ctx context.Context, arg InsertFileParams) (File, e
 		&i.Deleted,
 	)
 	return i, err
+}
+
+const insertFileSnapshot = `-- name: InsertFileSnapshot :one
+INSERT INTO file_snapshots (id, file_id, content_id, created_at, size, permissions, uid, gid, accessed_at, modified_at, changed_at, born_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, file_id, content_id, created_at, size, permissions, uid, gid, accessed_at, modified_at, changed_at, born_at
+`
+
+type InsertFileSnapshotParams struct {
+	ID          string       `json:"id"`
+	FileID      string       `json:"file_id"`
+	ContentID   string       `json:"content_id"`
+	CreatedAt   time.Time    `json:"created_at"`
+	Size        int64        `json:"size"`
+	Permissions int64        `json:"permissions"`
+	Uid         int64        `json:"uid"`
+	Gid         int64        `json:"gid"`
+	AccessedAt  time.Time    `json:"accessed_at"`
+	ModifiedAt  time.Time    `json:"modified_at"`
+	ChangedAt   time.Time    `json:"changed_at"`
+	BornAt      sql.NullTime `json:"born_at"`
+}
+
+func (q *Queries) InsertFileSnapshot(ctx context.Context, arg InsertFileSnapshotParams) (FileSnapshot, error) {
+	row := q.db.QueryRowContext(ctx, insertFileSnapshot,
+		arg.ID,
+		arg.FileID,
+		arg.ContentID,
+		arg.CreatedAt,
+		arg.Size,
+		arg.Permissions,
+		arg.Uid,
+		arg.Gid,
+		arg.AccessedAt,
+		arg.ModifiedAt,
+		arg.ChangedAt,
+		arg.BornAt,
+	)
+	var i FileSnapshot
+	err := row.Scan(
+		&i.ID,
+		&i.FileID,
+		&i.ContentID,
+		&i.CreatedAt,
+		&i.Size,
+		&i.Permissions,
+		&i.Uid,
+		&i.Gid,
+		&i.AccessedAt,
+		&i.ModifiedAt,
+		&i.ChangedAt,
+		&i.BornAt,
+	)
+	return i, err
+}
+
+const updateFileCurrentSnapshot = `-- name: UpdateFileCurrentSnapshot :exec
+UPDATE files SET current_snapshot_id = ? WHERE id = ?
+`
+
+type UpdateFileCurrentSnapshotParams struct {
+	CurrentSnapshotID sql.NullString `json:"current_snapshot_id"`
+	ID                string         `json:"id"`
+}
+
+func (q *Queries) UpdateFileCurrentSnapshot(ctx context.Context, arg UpdateFileCurrentSnapshotParams) error {
+	_, err := q.db.ExecContext(ctx, updateFileCurrentSnapshot, arg.CurrentSnapshotID, arg.ID)
+	return err
 }
 
 const updateFileDirectoryAndName = `-- name: UpdateFileDirectoryAndName :exec

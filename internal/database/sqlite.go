@@ -38,6 +38,16 @@ func NewSQLiteDatabase(path string) (*SQLiteDatabase, error) {
 	}, nil
 }
 
+// NewSQLiteDatabaseFromDB wraps an existing database connection.
+// The caller is responsible for ensuring the connection is properly configured.
+func NewSQLiteDatabaseFromDB(db *sql.DB) *SQLiteDatabase {
+	return &SQLiteDatabase{
+		db:      db,
+		queries: sqlc.New(db),
+		path:    "",
+	}
+}
+
 // OpenConnection opens and configures a SQLite database connection with appropriate PRAGMAs.
 // This is exported for use in tools and tests that need a properly configured SQLite connection.
 // path can be a file path or ":memory:" for in-memory database.
@@ -246,29 +256,86 @@ func (s *SQLiteDatabase) FindOrCreateFile(directory *sqlc.Directory, relativePat
 // FileSnapshot operations
 
 func (s *SQLiteDatabase) FindFileSnapshotsForFile(file *sqlc.File) ([]*sqlc.FileSnapshot, error) {
-	return nil, fmt.Errorf("not implemented")
+	snapshots, err := s.queries.GetFileSnapshotsByFileID(context.Background(), file.ID)
+	if err != nil {
+		return nil, fmt.Errorf("finding file snapshots: %w", err)
+	}
+
+	result := make([]*sqlc.FileSnapshot, len(snapshots))
+	for i := range snapshots {
+		result[i] = &snapshots[i]
+	}
+	return result, nil
 }
 
 func (s *SQLiteDatabase) FindFileSnapshotByChecksum(file *sqlc.File, checksum string) (*sqlc.FileSnapshot, error) {
-	return nil, fmt.Errorf("not implemented")
+	snapshot, err := s.queries.GetFileSnapshotByFileAndContent(context.Background(), sqlc.GetFileSnapshotByFileAndContentParams{
+		FileID:    file.ID,
+		ContentID: checksum,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // Not found
+		}
+		return nil, fmt.Errorf("finding file snapshot by checksum: %w", err)
+	}
+	return &snapshot, nil
 }
 
 func (s *SQLiteDatabase) CreateFileSnapshot(snapshot *sqlc.FileSnapshot) error {
-	return fmt.Errorf("not implemented")
+	_, err := s.queries.InsertFileSnapshot(context.Background(), sqlc.InsertFileSnapshotParams{
+		ID:          snapshot.ID,
+		FileID:      snapshot.FileID,
+		ContentID:   snapshot.ContentID,
+		CreatedAt:   snapshot.CreatedAt,
+		Size:        snapshot.Size,
+		Permissions: snapshot.Permissions,
+		Uid:         snapshot.Uid,
+		Gid:         snapshot.Gid,
+		AccessedAt:  snapshot.AccessedAt,
+		ModifiedAt:  snapshot.ModifiedAt,
+		ChangedAt:   snapshot.ChangedAt,
+		BornAt:      snapshot.BornAt,
+	})
+	if err != nil {
+		return fmt.Errorf("creating file snapshot: %w", err)
+	}
+	return nil
 }
 
 func (s *SQLiteDatabase) UpdateFileCurrentSnapshot(file *sqlc.File, snapshotID string) error {
-	return fmt.Errorf("not implemented")
+	err := s.queries.UpdateFileCurrentSnapshot(context.Background(), sqlc.UpdateFileCurrentSnapshotParams{
+		CurrentSnapshotID: sql.NullString{String: snapshotID, Valid: true},
+		ID:                file.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("updating file current snapshot: %w", err)
+	}
+	return nil
 }
 
 // Content operations
 
 func (s *SQLiteDatabase) CreateContent(checksum string) (*sqlc.Content, error) {
-	return nil, fmt.Errorf("not implemented")
+	content, err := s.queries.InsertContent(context.Background(), sqlc.InsertContentParams{
+		ID:        checksum,
+		CreatedAt: time.Now(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating content: %w", err)
+	}
+	return &content, nil
 }
 
 func (s *SQLiteDatabase) FindContentByChecksum(checksum string) (*sqlc.Content, error) {
-	return nil, fmt.Errorf("not implemented")
+	content, err := s.queries.GetContentByID(context.Background(), checksum)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // Not found
+		}
+		return nil, fmt.Errorf("finding content by checksum: %w", err)
+	}
+	return &content, nil
 }
 
 // Close closes the database connection.
