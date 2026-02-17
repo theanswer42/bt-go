@@ -61,6 +61,17 @@ type Database interface {
 	// FindContentByChecksum returns content metadata by checksum.
 	FindContentByChecksum(checksum string) (*sqlc.Content, error)
 
+	// Path returns the database file path (or ":memory:" for in-memory databases).
+	Path() string
+
+	// CheckMigrations verifies the database schema is up-to-date.
+	// Returns nil if current, or an error describing any version mismatch.
+	CheckMigrations() error
+
+	// BackupTo creates a complete copy of the database at destPath.
+	// Works for both in-memory and file-based databases.
+	BackupTo(destPath string) error
+
 	// Close closes the database connection.
 	Close() error
 }

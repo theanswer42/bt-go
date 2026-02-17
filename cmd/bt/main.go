@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"bt-go/internal/app"
 	"bt-go/internal/config"
@@ -15,6 +16,26 @@ func main() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// newApp reads the config and creates a BTApp. The caller must defer app.Close().
+func newApp() (*app.BTApp, error) {
+	defaults, err := app.GetDefaults()
+	if err != nil {
+		return nil, fmt.Errorf("getting defaults: %w", err)
+	}
+
+	cfg, err := config.ReadFromFile(defaults["config_path"])
+	if err != nil {
+		return nil, fmt.Errorf("reading config: %w", err)
+	}
+
+	a, err := app.NewBTApp(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("initializing app: %w", err)
+	}
+
+	return a, nil
 }
 
 var rootCmd = &cobra.Command{
@@ -103,9 +124,24 @@ var dirCmd = &cobra.Command{
 var dirInitCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Track current directory",
-	Run: func(cmd *cobra.Command, args []string) {
-		cwd, _ := os.Getwd()
-		fmt.Printf("Would track directory: %s\n", cwd)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		a, err := newApp()
+		if err != nil {
+			return err
+		}
+		defer a.Close()
+
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting current directory: %w", err)
+		}
+
+		if err := a.AddDirectory(cwd); err != nil {
+			return fmt.Errorf("tracking directory: %w", err)
+		}
+
+		fmt.Printf("Tracking directory: %s\n", cwd)
+		return nil
 	},
 }
 
@@ -122,13 +158,29 @@ var dirStatusCmd = &cobra.Command{
 var addCmd = &cobra.Command{
 	Use:   "add [FILENAME]",
 	Short: "Stage files for backup",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
+		a, err := newApp()
+		if err != nil {
+			return err
+		}
+		defer a.Close()
+
 		target := "."
 		if len(args) > 0 {
 			target = args[0]
 		}
-		cwd, _ := os.Getwd()
-		fmt.Printf("Would stage files from: %s (in directory: %s)\n", target, cwd)
+
+		absTarget, err := filepath.Abs(target)
+		if err != nil {
+			return fmt.Errorf("resolving path: %w", err)
+		}
+
+		if err := a.StageFile(absTarget); err != nil {
+			return fmt.Errorf("staging file: %w", err)
+		}
+
+		fmt.Printf("Staged: %s\n", absTarget)
+		return nil
 	},
 }
 
@@ -136,8 +188,20 @@ var addCmd = &cobra.Command{
 var backupCmd = &cobra.Command{
 	Use:   "backup",
 	Short: "Execute backup",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Would process all staged operations and back up to vault")
+	RunE: func(cmd *cobra.Command, args []string) error {
+		a, err := newApp()
+		if err != nil {
+			return err
+		}
+		defer a.Close()
+
+		count, err := a.BackupAll()
+		if err != nil {
+			return fmt.Errorf("backup failed: %w", err)
+		}
+
+		fmt.Printf("Backed up %d file(s)\n", count)
+		return nil
 	},
 }
 

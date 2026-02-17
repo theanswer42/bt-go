@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"bt-go/internal/bt"
+	"bt-go/internal/database/migrations"
 	"bt-go/internal/database/sqlc"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite driver
@@ -451,6 +452,25 @@ func (s *SQLiteDatabase) FindContentByChecksum(checksum string) (*sqlc.Content, 
 		return nil, fmt.Errorf("finding content by checksum: %w", err)
 	}
 	return &content, nil
+}
+
+// Path returns the database file path (or ":memory:" for in-memory databases).
+func (s *SQLiteDatabase) Path() string {
+	return s.path
+}
+
+// CheckMigrations verifies the database schema is up-to-date.
+func (s *SQLiteDatabase) CheckMigrations() error {
+	return migrations.CheckDBMigrationStatus(s.db)
+}
+
+// BackupTo creates a complete copy of the database at destPath using VACUUM INTO.
+func (s *SQLiteDatabase) BackupTo(destPath string) error {
+	_, err := s.db.Exec("VACUUM INTO ?", destPath)
+	if err != nil {
+		return fmt.Errorf("backing up database: %w", err)
+	}
+	return nil
 }
 
 // Close closes the database connection.
