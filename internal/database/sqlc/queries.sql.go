@@ -99,6 +99,25 @@ func (q *Queries) GetFileByDirectoryAndName(ctx context.Context, arg GetFileByDi
 	return i, err
 }
 
+const getFileByID = `-- name: GetFileByID :one
+
+SELECT id, name, directory_id, current_snapshot_id, deleted FROM files WHERE id = ? LIMIT 1
+`
+
+// File queries
+func (q *Queries) GetFileByID(ctx context.Context, id string) (File, error) {
+	row := q.db.QueryRowContext(ctx, getFileByID, id)
+	var i File
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.DirectoryID,
+		&i.CurrentSnapshotID,
+		&i.Deleted,
+	)
+	return i, err
+}
+
 const getFileSnapshotByFileAndContent = `-- name: GetFileSnapshotByFileAndContent :one
 SELECT id, file_id, content_id, created_at, size, permissions, uid, gid, accessed_at, modified_at, changed_at, born_at FROM file_snapshots WHERE file_id = ? AND content_id = ? LIMIT 1
 `
@@ -128,12 +147,36 @@ func (q *Queries) GetFileSnapshotByFileAndContent(ctx context.Context, arg GetFi
 	return i, err
 }
 
-const getFileSnapshotsByFileID = `-- name: GetFileSnapshotsByFileID :many
+const getFileSnapshotByID = `-- name: GetFileSnapshotByID :one
 
-SELECT id, file_id, content_id, created_at, size, permissions, uid, gid, accessed_at, modified_at, changed_at, born_at FROM file_snapshots WHERE file_id = ? ORDER BY created_at
+SELECT id, file_id, content_id, created_at, size, permissions, uid, gid, accessed_at, modified_at, changed_at, born_at FROM file_snapshots WHERE id = ? LIMIT 1
 `
 
 // FileSnapshot queries
+func (q *Queries) GetFileSnapshotByID(ctx context.Context, id string) (FileSnapshot, error) {
+	row := q.db.QueryRowContext(ctx, getFileSnapshotByID, id)
+	var i FileSnapshot
+	err := row.Scan(
+		&i.ID,
+		&i.FileID,
+		&i.ContentID,
+		&i.CreatedAt,
+		&i.Size,
+		&i.Permissions,
+		&i.Uid,
+		&i.Gid,
+		&i.AccessedAt,
+		&i.ModifiedAt,
+		&i.ChangedAt,
+		&i.BornAt,
+	)
+	return i, err
+}
+
+const getFileSnapshotsByFileID = `-- name: GetFileSnapshotsByFileID :many
+SELECT id, file_id, content_id, created_at, size, permissions, uid, gid, accessed_at, modified_at, changed_at, born_at FROM file_snapshots WHERE file_id = ? ORDER BY created_at
+`
+
 func (q *Queries) GetFileSnapshotsByFileID(ctx context.Context, fileID string) ([]FileSnapshot, error) {
 	rows, err := q.db.QueryContext(ctx, getFileSnapshotsByFileID, fileID)
 	if err != nil {
@@ -171,11 +214,9 @@ func (q *Queries) GetFileSnapshotsByFileID(ctx context.Context, fileID string) (
 }
 
 const getFilesByDirectoryID = `-- name: GetFilesByDirectoryID :many
-
 SELECT id, name, directory_id, current_snapshot_id, deleted FROM files WHERE directory_id = ?
 `
 
-// File queries
 func (q *Queries) GetFilesByDirectoryID(ctx context.Context, directoryID string) ([]File, error) {
 	rows, err := q.db.QueryContext(ctx, getFilesByDirectoryID, directoryID)
 	if err != nil {

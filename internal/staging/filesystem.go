@@ -53,7 +53,7 @@ func NewFileSystemStagingArea(fsmgr bt.FilesystemManager, stagingDir string, max
 }
 
 // Stage stages a file for backup.
-func (f *FileSystemStagingArea) Stage(directory *sqlc.Directory, file *sqlc.File, path *bt.Path) error {
+func (f *FileSystemStagingArea) Stage(directory *sqlc.Directory, relativePath string, path *bt.Path) error {
 	// 1. Get initial stat from the path
 	info1 := path.Info()
 	stat1, err := f.fsmgr.ExtractStatData(info1)
@@ -104,9 +104,9 @@ func (f *FileSystemStagingArea) Stage(directory *sqlc.Directory, file *sqlc.File
 
 	// 6. Add operation to queue
 	op := &stagedOperation{
-		DirectoryID: directory.ID,
+		DirectoryID:  directory.ID,
+		RelativePath: relativePath,
 		Snapshot: sqlc.FileSnapshot{
-			FileID:      file.ID,
 			ContentID:   checksum,
 			Size:        size,
 			Permissions: int64(info1.Mode().Perm()),
@@ -158,7 +158,7 @@ func (f *FileSystemStagingArea) ProcessNext(fn bt.BackupFunc) error {
 	defer contentFile.Close()
 
 	// Call the backup function
-	if err := fn(contentFile, op.Snapshot, op.DirectoryID); err != nil {
+	if err := fn(contentFile, op.Snapshot, op.DirectoryID, op.RelativePath); err != nil {
 		return err
 	}
 
@@ -178,7 +178,8 @@ func (f *FileSystemStagingArea) ProcessNext(fn bt.BackupFunc) error {
 	removed := false
 
 	for _, queued := range queue {
-		if !removed && queued.Snapshot.FileID == op.Snapshot.FileID &&
+		if !removed && queued.DirectoryID == op.DirectoryID &&
+			queued.RelativePath == op.RelativePath &&
 			queued.Snapshot.ContentID == op.Snapshot.ContentID {
 			removed = true
 			continue

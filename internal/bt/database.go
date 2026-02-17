@@ -44,6 +44,12 @@ type Database interface {
 	// CreateFileSnapshot creates a new snapshot for a file.
 	CreateFileSnapshot(snapshot *sqlc.FileSnapshot) error
 
+	// CreateFileSnapshotAndContent atomically records a backup in a single transaction:
+	// finds or creates the file record, creates content (if needed),
+	// compares against the file's current snapshot, and creates a new
+	// snapshot + updates the pointer if anything changed.
+	CreateFileSnapshotAndContent(directoryID string, relativePath string, snapshot *sqlc.FileSnapshot) error
+
 	// UpdateFileCurrentSnapshot updates the current snapshot pointer for a file.
 	UpdateFileCurrentSnapshot(file *sqlc.File, snapshotID string) error
 

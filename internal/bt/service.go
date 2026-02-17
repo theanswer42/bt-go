@@ -81,14 +81,8 @@ func (s *BTService) StageFile(path *Path) error {
 		return fmt.Errorf("calculating relative path: %w", err)
 	}
 
-	// Find or create the file record
-	file, err := s.database.FindOrCreateFile(directory, relativePath)
-	if err != nil {
-		return fmt.Errorf("finding or creating file: %w", err)
-	}
-
-	// Stage the file for backup
-	if err := s.stagingArea.Stage(directory, file, path); err != nil {
+	// Stage the file for backup (no database writes here)
+	if err := s.stagingArea.Stage(directory, relativePath, path); err != nil {
 		return fmt.Errorf("staging file: %w", err)
 	}
 
@@ -111,8 +105,8 @@ func (s *BTService) BackupAll() (int, error) {
 		}
 
 		// Process the next staged item
-		err = s.stagingArea.ProcessNext(func(content io.Reader, snapshot sqlc.FileSnapshot, directoryID string) error {
-			return s.backupFile(content, snapshot)
+		err = s.stagingArea.ProcessNext(func(content io.Reader, snapshot sqlc.FileSnapshot, directoryID string, relativePath string) error {
+			return s.backupFile(content, snapshot, directoryID, relativePath)
 		})
 		if err != nil {
 			return count, fmt.Errorf("backing up file: %w", err)
@@ -125,65 +119,34 @@ func (s *BTService) BackupAll() (int, error) {
 }
 
 // backupFile handles the backup of a single file's content and metadata.
-func (s *BTService) backupFile(content io.Reader, snapshot sqlc.FileSnapshot) error {
+//
+// Strategy: upload content to the vault first (idempotent), then atomically
+// record everything in the database via a single transaction. If the DB
+// call fails, the worst outcome is orphaned content in the vault, which is
+// harmless. The staging queue will retain the operation for retry.
+func (s *BTService) backupFile(content io.Reader, snapshot sqlc.FileSnapshot, directoryID string, relativePath string) error {
 	checksum := snapshot.ContentID
 
-	// Check if content already exists in the database (and thus in vault)
+	// Check if content already exists in the database (and thus in vault).
+	// If so, we can skip the vault upload entirely.
 	existingContent, err := s.database.FindContentByChecksum(checksum)
 	if err != nil {
 		return fmt.Errorf("checking for existing content: %w", err)
 	}
 
 	if existingContent == nil {
-		// Upload content to vault
+		// Upload content to vault first — this is idempotent by checksum.
 		if err := s.vault.PutContent(checksum, content, snapshot.Size); err != nil {
 			return fmt.Errorf("uploading to vault: %w", err)
 		}
-
-		// Create content record in database
-		if _, err := s.database.CreateContent(checksum); err != nil {
-			return fmt.Errorf("creating content record: %w", err)
-		}
 	}
 
-	// Create a file object to check for existing snapshot
-	file := &sqlc.File{ID: snapshot.FileID}
-
-	// Check if this exact snapshot already exists (same file + same content)
-	existingSnapshot, err := s.database.FindFileSnapshotByChecksum(file, checksum)
-	if err != nil {
-		return fmt.Errorf("checking for existing snapshot: %w", err)
-	}
-
-	var snapshotID string
-	if existingSnapshot != nil {
-		// Snapshot already exists, just use its ID
-		snapshotID = existingSnapshot.ID
-	} else {
-		// Create new snapshot
-		snapshotID = uuid.New().String()
-		newSnapshot := &sqlc.FileSnapshot{
-			ID:          snapshotID,
-			FileID:      snapshot.FileID,
-			ContentID:   checksum,
-			CreatedAt:   time.Now(),
-			Size:        snapshot.Size,
-			Permissions: snapshot.Permissions,
-			Uid:         snapshot.Uid,
-			Gid:         snapshot.Gid,
-			AccessedAt:  snapshot.AccessedAt,
-			ModifiedAt:  snapshot.ModifiedAt,
-			ChangedAt:   snapshot.ChangedAt,
-			BornAt:      snapshot.BornAt,
-		}
-		if err := s.database.CreateFileSnapshot(newSnapshot); err != nil {
-			return fmt.Errorf("creating file snapshot: %w", err)
-		}
-	}
-
-	// Update the file's current snapshot pointer
-	if err := s.database.UpdateFileCurrentSnapshot(file, snapshotID); err != nil {
-		return fmt.Errorf("updating file current snapshot: %w", err)
+	// Atomically: find/create file, create content record (if needed),
+	// compare against current snapshot, and create a new one if anything changed.
+	snapshot.ID = uuid.New().String()
+	snapshot.CreatedAt = time.Now()
+	if err := s.database.CreateFileSnapshotAndContent(directoryID, relativePath, &snapshot); err != nil {
+		return fmt.Errorf("recording backup in database: %w", err)
 	}
 
 	return nil

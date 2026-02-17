@@ -314,6 +314,121 @@ func (s *SQLiteDatabase) UpdateFileCurrentSnapshot(file *sqlc.File, snapshotID s
 	return nil
 }
 
+// CreateFileSnapshotAndContent atomically records a backup in a single transaction:
+// 1. Finds or creates the file record for the given directory + relative path.
+// 2. Creates the content record if it doesn't already exist.
+// 3. Compares against the file's current snapshot — if all relevant fields match,
+//    this is a no-op (the file hasn't changed).
+// 4. Otherwise creates a new snapshot and updates the file's current snapshot pointer.
+func (s *SQLiteDatabase) CreateFileSnapshotAndContent(directoryID string, relativePath string, snapshot *sqlc.FileSnapshot) error {
+	ctx := context.Background()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("starting transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	qtx := s.queries.WithTx(tx)
+
+	// 1. Find or create the file record.
+	file, err := qtx.GetFileByDirectoryAndName(ctx, sqlc.GetFileByDirectoryAndNameParams{
+		DirectoryID: directoryID,
+		Name:        relativePath,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		file, err = qtx.InsertFile(ctx, sqlc.InsertFileParams{
+			ID:                uuid.New().String(),
+			Name:              relativePath,
+			DirectoryID:       directoryID,
+			CurrentSnapshotID: sql.NullString{},
+			Deleted:           false,
+		})
+		if err != nil {
+			return fmt.Errorf("creating file: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("finding file: %w", err)
+	}
+
+	// 2. Create content record if it doesn't exist.
+	_, err = qtx.GetContentByID(ctx, snapshot.ContentID)
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = qtx.InsertContent(ctx, sqlc.InsertContentParams{
+			ID:        snapshot.ContentID,
+			CreatedAt: time.Now(),
+		})
+		if err != nil {
+			return fmt.Errorf("creating content: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("checking for existing content: %w", err)
+	}
+
+	// 3. Check the file's current snapshot. If it matches, nothing changed — skip.
+	if file.CurrentSnapshotID.Valid {
+		current, err := qtx.GetFileSnapshotByID(ctx, file.CurrentSnapshotID.String)
+		if err != nil {
+			return fmt.Errorf("loading current snapshot: %w", err)
+		}
+		if snapshotsEqual(&current, snapshot) {
+			// Nothing changed — commit the content record (if new) and return.
+			if err := tx.Commit(); err != nil {
+				return fmt.Errorf("committing transaction: %w", err)
+			}
+			return nil
+		}
+	}
+
+	// 4. Create new snapshot and update the file's current pointer.
+	snapshot.FileID = file.ID
+	created, err := qtx.InsertFileSnapshot(ctx, sqlc.InsertFileSnapshotParams{
+		ID:          snapshot.ID,
+		FileID:      file.ID,
+		ContentID:   snapshot.ContentID,
+		CreatedAt:   snapshot.CreatedAt,
+		Size:        snapshot.Size,
+		Permissions: snapshot.Permissions,
+		Uid:         snapshot.Uid,
+		Gid:         snapshot.Gid,
+		AccessedAt:  snapshot.AccessedAt,
+		ModifiedAt:  snapshot.ModifiedAt,
+		ChangedAt:   snapshot.ChangedAt,
+		BornAt:      snapshot.BornAt,
+	})
+	if err != nil {
+		return fmt.Errorf("creating file snapshot: %w", err)
+	}
+
+	err = qtx.UpdateFileCurrentSnapshot(ctx, sqlc.UpdateFileCurrentSnapshotParams{
+		CurrentSnapshotID: sql.NullString{String: created.ID, Valid: true},
+		ID:                file.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("updating file current snapshot: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing transaction: %w", err)
+	}
+
+	return nil
+}
+
+// snapshotsEqual compares all relevant fields of two file snapshots.
+// ID and CreatedAt are excluded — they're identity/metadata, not file state.
+func snapshotsEqual(a, b *sqlc.FileSnapshot) bool {
+	return a.ContentID == b.ContentID &&
+		a.Size == b.Size &&
+		a.Permissions == b.Permissions &&
+		a.Uid == b.Uid &&
+		a.Gid == b.Gid &&
+		a.AccessedAt.Equal(b.AccessedAt) &&
+		a.ModifiedAt.Equal(b.ModifiedAt) &&
+		a.ChangedAt.Equal(b.ChangedAt) &&
+		a.BornAt == b.BornAt
+}
+
 // Content operations
 
 func (s *SQLiteDatabase) CreateContent(checksum string) (*sqlc.Content, error) {

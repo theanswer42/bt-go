@@ -19,10 +19,12 @@ type Querier interface {
 	// Directory queries
 	GetDirectoryByPath(ctx context.Context, path string) (Directory, error)
 	GetFileByDirectoryAndName(ctx context.Context, arg GetFileByDirectoryAndNameParams) (File, error)
+	// File queries
+	GetFileByID(ctx context.Context, id string) (File, error)
 	GetFileSnapshotByFileAndContent(ctx context.Context, arg GetFileSnapshotByFileAndContentParams) (FileSnapshot, error)
 	// FileSnapshot queries
+	GetFileSnapshotByID(ctx context.Context, id string) (FileSnapshot, error)
 	GetFileSnapshotsByFileID(ctx context.Context, fileID string) ([]FileSnapshot, error)
-	// File queries
 	GetFilesByDirectoryID(ctx context.Context, directoryID string) ([]File, error)
 	InsertContent(ctx context.Context, arg InsertContentParams) (Content, error)
 	InsertDirectory(ctx context.Context, arg InsertDirectoryParams) (Directory, error)

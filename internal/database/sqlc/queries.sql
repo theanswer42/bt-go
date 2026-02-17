@@ -20,6 +20,9 @@ DELETE FROM directories WHERE id = ?;
 
 -- File queries
 
+-- name: GetFileByID :one
+SELECT * FROM files WHERE id = ? LIMIT 1;
+
 -- name: GetFilesByDirectoryID :many
 SELECT * FROM files WHERE directory_id = ?;
 
@@ -38,6 +41,9 @@ RETURNING *;
 UPDATE files SET current_snapshot_id = ? WHERE id = ?;
 
 -- FileSnapshot queries
+
+-- name: GetFileSnapshotByID :one
+SELECT * FROM file_snapshots WHERE id = ? LIMIT 1;
 
 -- name: GetFileSnapshotsByFileID :many
 SELECT * FROM file_snapshots WHERE file_id = ? ORDER BY created_at;

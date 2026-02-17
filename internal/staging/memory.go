@@ -39,7 +39,7 @@ func NewMemoryStagingArea(fsmgr bt.FilesystemManager, maxSize int64) *MemoryStag
 }
 
 // Stage stages a file for backup.
-func (m *MemoryStagingArea) Stage(directory *sqlc.Directory, file *sqlc.File, path *bt.Path) error {
+func (m *MemoryStagingArea) Stage(directory *sqlc.Directory, relativePath string, path *bt.Path) error {
 	// 1. Get initial stat from the path
 	info1 := path.Info()
 	stat1, err := m.fsmgr.ExtractStatData(info1)
@@ -89,9 +89,9 @@ func (m *MemoryStagingArea) Stage(directory *sqlc.Directory, file *sqlc.File, pa
 
 	// 5. Add operation to queue
 	op := &stagedOperation{
-		DirectoryID: directory.ID,
+		DirectoryID:  directory.ID,
+		RelativePath: relativePath,
 		Snapshot: sqlc.FileSnapshot{
-			FileID:      file.ID,
 			ContentID:   checksum,
 			Size:        info1.Size(),
 			Permissions: int64(info1.Mode().Perm()),
@@ -133,7 +133,7 @@ func (m *MemoryStagingArea) ProcessNext(fn bt.BackupFunc) error {
 
 	// Call the backup function
 	reader := bytes.NewReader(contentCopy)
-	if err := fn(reader, op.Snapshot, op.DirectoryID); err != nil {
+	if err := fn(reader, op.Snapshot, op.DirectoryID, op.RelativePath); err != nil {
 		return err
 	}
 
@@ -141,8 +141,10 @@ func (m *MemoryStagingArea) ProcessNext(fn bt.BackupFunc) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Remove from queue
-	if len(m.queue) > 0 && m.queue[0] == op {
+	// Remove the processed operation from the front of the queue
+	if len(m.queue) > 0 && m.queue[0].DirectoryID == op.DirectoryID &&
+		m.queue[0].RelativePath == op.RelativePath &&
+		m.queue[0].Snapshot.ContentID == op.Snapshot.ContentID {
 		m.queue = m.queue[1:]
 	}
 
