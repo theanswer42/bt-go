@@ -36,4 +36,10 @@ type FilesystemManager interface {
 	// ExtractStatData extracts platform-specific metadata from a FileInfo.
 	// This includes uid, gid, atime, ctime, and birthtime where available.
 	ExtractStatData(info fs.FileInfo) (*StatData, error)
+
+	// FindFiles discovers regular files under the given directory path.
+	// If recursive is false, only files directly in the directory are returned.
+	// If recursive is true, files in all subdirectories are included.
+	// Symlinks, devices, and other special files are skipped.
+	FindFiles(path *Path, recursive bool) ([]*Path, error)
 }

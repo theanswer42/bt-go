@@ -66,5 +66,55 @@ func (m *OSFilesystemManager) Stat(path *bt.Path) (fs.FileInfo, error) {
 	return os.Stat(path.String())
 }
 
+// FindFiles discovers regular files under the given directory path.
+func (m *OSFilesystemManager) FindFiles(path *bt.Path, recursive bool) ([]*bt.Path, error) {
+	if !path.IsDir() {
+		return nil, fmt.Errorf("path is not a directory: %s", path.String())
+	}
+
+	var paths []*bt.Path
+
+	if recursive {
+		err := filepath.WalkDir(path.String(), func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if !d.Type().IsRegular() {
+				return nil
+			}
+			info, err := d.Info()
+			if err != nil {
+				return fmt.Errorf("stat %s: %w", p, err)
+			}
+			paths = append(paths, bt.NewPath(p, false, info))
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("walking directory: %w", err)
+		}
+	} else {
+		entries, err := os.ReadDir(path.String())
+		if err != nil {
+			return nil, fmt.Errorf("reading directory: %w", err)
+		}
+		for _, entry := range entries {
+			if !entry.Type().IsRegular() {
+				continue
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return nil, fmt.Errorf("stat %s: %w", entry.Name(), err)
+			}
+			fullPath := filepath.Join(path.String(), entry.Name())
+			paths = append(paths, bt.NewPath(fullPath, false, info))
+		}
+	}
+
+	return paths, nil
+}
+
 // Compile-time check that OSFilesystemManager implements bt.FilesystemManager interface
 var _ bt.FilesystemManager = (*OSFilesystemManager)(nil)

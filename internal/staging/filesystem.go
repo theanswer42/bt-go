@@ -336,5 +336,23 @@ func (f *FileSystemStagingArea) appendToQueue(op *stagedOperation) error {
 	return f.writeQueue(queue)
 }
 
+// IsStaged reports whether a file is currently in the staging queue.
+func (f *FileSystemStagingArea) IsStaged(directoryID string, relativePath string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	queue, err := f.readQueue()
+	if err != nil {
+		return false, err
+	}
+
+	for _, op := range queue {
+		if op.DirectoryID == directoryID && op.RelativePath == relativePath {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Compile-time check that FileSystemStagingArea implements bt.StagingArea interface
 var _ bt.StagingArea = (*FileSystemStagingArea)(nil)

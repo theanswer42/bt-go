@@ -38,4 +38,7 @@ type StagingArea interface {
 
 	// Size returns the total size of staged content in bytes.
 	Size() (int64, error)
+
+	// IsStaged reports whether a file is currently in the staging queue.
+	IsStaged(directoryID string, relativePath string) (bool, error)
 }

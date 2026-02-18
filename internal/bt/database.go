@@ -27,6 +27,9 @@ type Database interface {
 
 	// File operations
 
+	// FindFilesByDirectory returns all files belonging to a directory.
+	FindFilesByDirectory(directory *sqlc.Directory) ([]*sqlc.File, error)
+
 	// FindFileByPath returns a file within a directory by its relative path.
 	FindFileByPath(directory *sqlc.Directory, relativePath string) (*sqlc.File, error)
 

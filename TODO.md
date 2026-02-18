@@ -1,28 +1,37 @@
+## Tests
 
-tests + github actions to run tests
+## Features
+Staging the same file twice - if the previous "stage" was less the X
+minutes, remove the old operation and add new. This should be
+configurable as `staging.file_change_threshold`
 
-pre-commit format and lint check
+bt dir status
 
+bt log
+
+bt restore
+ - include implementation of .btignore + ignore in config
+
+bt history
+
+bt add -a -r
+
+logs
+ - logs for everything to local
+ - operation logs in table
+
+encryption?
+
+## Infra
 for sqlite
 - enable WAL mode
 - use process co-ordination with a lock file
 
-local execution lock
-- use lock file to ensure only one process is able to run anything
-  that writes
-- can we do something where we define some functions in bt service as
-  needing some kind of assurance? wonder what's a good way to do this.
+pre-commit format and lint check
 
-vault management
-- restore state for host
-- "vault management execution block" for all bt service
-  functions. This should ensure the vault metadata is up to date with
-  local metadata
+github actions to run tests, build
 
-Log management
-- back up logs to the vault?
-
-code review items
+## Code review
 - FindOrCreateFile (sqlite.go) has a check-then-insert without a
   transaction. Safe under single-user, UNIQUE constraint catches
   races, but could wrap in a transaction for correctness.
@@ -33,6 +42,5 @@ code review items
   CreateContent instead of using an injected clock. Limits testability
   for timestamp assertions.
 
-Staging the same file twice - if the previous "stage" was less the X
-minutes, remove the old operation and add new. This should be
-configurable as `staging.file_change_threshold`
+
+

@@ -213,5 +213,18 @@ func validateStatUnchanged(info1, info2 fs.FileInfo, stat1, stat2 *bt.StatData) 
 	return nil
 }
 
+// IsStaged reports whether a file is currently in the staging queue.
+func (m *MemoryStagingArea) IsStaged(directoryID string, relativePath string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, op := range m.queue {
+		if op.DirectoryID == directoryID && op.RelativePath == relativePath {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Compile-time check that MemoryStagingArea implements bt.StagingArea interface
 var _ bt.StagingArea = (*MemoryStagingArea)(nil)

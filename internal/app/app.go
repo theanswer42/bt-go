@@ -121,6 +121,15 @@ func (a *BTApp) StageFile(rawPath string) error {
 	return a.service.StageFile(p)
 }
 
+// GetStatus returns the backup status of files under the given path.
+func (a *BTApp) GetStatus(rawPath string, recursive bool) ([]*bt.FileStatus, error) {
+	p, err := a.fsmgr.Resolve(rawPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolving path: %w", err)
+	}
+	return a.service.GetStatus(p, recursive)
+}
+
 // BackupAll processes all staged files and backs them up to the vault.
 // Returns the number of files backed up.
 func (a *BTApp) BackupAll() (int, error) {

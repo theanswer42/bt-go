@@ -149,9 +149,50 @@ var dirInitCmd = &cobra.Command{
 var dirStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "View directory status",
-	Run: func(cmd *cobra.Command, args []string) {
-		cwd, _ := os.Getwd()
-		fmt.Printf("Would show status for directory: %s\n", cwd)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		recursive, _ := cmd.Flags().GetBool("recursive")
+
+		a, err := newApp("GetStatus")
+		if err != nil {
+			return err
+		}
+		defer a.Close()
+
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting current directory: %w", err)
+		}
+
+		statuses, err := a.GetStatus(cwd, recursive)
+		if err != nil {
+			return err
+		}
+
+		if len(statuses) == 0 {
+			fmt.Println("No files found.")
+			return nil
+		}
+
+		for _, s := range statuses {
+			var indicator string
+			switch {
+			case s.IsBackedUp && s.IsModifiedSince && s.IsStaged:
+				indicator = "BMS"
+			case s.IsBackedUp && s.IsModifiedSince:
+				indicator = "BM "
+			case s.IsBackedUp && s.IsStaged:
+				indicator = "BS "
+			case s.IsBackedUp:
+				indicator = "B  "
+			case s.IsStaged:
+				indicator = "S  "
+			default:
+				indicator = "?  "
+			}
+			fmt.Printf("%s %s\n", indicator, s.RelativePath)
+		}
+
+		return nil
 	},
 }
 
@@ -238,6 +279,7 @@ func init() {
 	// dir subcommands
 	dirCmd.AddCommand(dirInitCmd)
 	dirCmd.AddCommand(dirStatusCmd)
+	dirStatusCmd.Flags().BoolP("recursive", "r", false, "Recurse into subdirectories")
 
 	// root commands
 	rootCmd.AddCommand(configCmd)

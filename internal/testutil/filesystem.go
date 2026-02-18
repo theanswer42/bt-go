@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"bt-go/internal/bt"
@@ -59,6 +60,18 @@ func (m *MockFilesystemManager) AddDirectory(path string) {
 		Atime:       now,
 		Ctime:       now,
 	}
+}
+
+// UpdateFile updates a file's content and modtime in the mock filesystem.
+func (m *MockFilesystemManager) UpdateFile(path string, content []byte, modTime time.Time) {
+	f, ok := m.files[path]
+	if !ok {
+		m.AddFile(path, content)
+		m.files[path].ModTime = modTime
+		return
+	}
+	f.Content = content
+	f.ModTime = modTime
 }
 
 func (m *MockFilesystemManager) Resolve(rawPath string) (*bt.Path, error) {
@@ -143,6 +156,44 @@ func (m *mockFileInfo) Mode() fs.FileMode  { return m.mode }
 func (m *mockFileInfo) ModTime() time.Time { return m.modTime }
 func (m *mockFileInfo) IsDir() bool        { return m.isDir }
 func (m *mockFileInfo) Sys() any           { return m.mockFile }
+
+// FindFiles discovers regular files under the given directory path.
+func (m *MockFilesystemManager) FindFiles(path *bt.Path, recursive bool) ([]*bt.Path, error) {
+	if !path.IsDir() {
+		return nil, fmt.Errorf("path is not a directory: %s", path.String())
+	}
+
+	dir := path.String()
+	var paths []*bt.Path
+
+	for p, f := range m.files {
+		if f.IsDirectory {
+			continue
+		}
+		// Must be under the directory
+		rel, err := filepath.Rel(dir, p)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		if !recursive {
+			// Non-recursive: file must be directly in dir (no path separator in rel)
+			if strings.Contains(rel, string(filepath.Separator)) {
+				continue
+			}
+		}
+		info := &mockFileInfo{
+			name:     filepath.Base(p),
+			size:     int64(len(f.Content)),
+			mode:     f.Permissions,
+			modTime:  f.ModTime,
+			isDir:    false,
+			mockFile: f,
+		}
+		paths = append(paths, bt.NewPath(p, false, info))
+	}
+
+	return paths, nil
+}
 
 // Compile-time check
 var _ bt.FilesystemManager = (*MockFilesystemManager)(nil)

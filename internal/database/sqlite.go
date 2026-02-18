@@ -216,6 +216,19 @@ func (s *SQLiteDatabase) DeleteDirectory(directory *sqlc.Directory) error {
 
 // File operations
 
+func (s *SQLiteDatabase) FindFilesByDirectory(directory *sqlc.Directory) ([]*sqlc.File, error) {
+	files, err := s.queries.GetFilesByDirectoryID(context.Background(), directory.ID)
+	if err != nil {
+		return nil, fmt.Errorf("finding files by directory: %w", err)
+	}
+
+	result := make([]*sqlc.File, len(files))
+	for i := range files {
+		result[i] = &files[i]
+	}
+	return result, nil
+}
+
 func (s *SQLiteDatabase) FindFileByPath(directory *sqlc.Directory, relativePath string) (*sqlc.File, error) {
 	file, err := s.queries.GetFileByDirectoryAndName(context.Background(), sqlc.GetFileByDirectoryAndNameParams{
 		DirectoryID: directory.ID,
