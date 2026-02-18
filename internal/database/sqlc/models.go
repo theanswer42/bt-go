@@ -9,6 +9,15 @@ import (
 	"time"
 )
 
+type BackupOperation struct {
+	ID         int64        `json:"id"`
+	StartedAt  time.Time    `json:"started_at"`
+	FinishedAt sql.NullTime `json:"finished_at"`
+	Operation  string       `json:"operation"`
+	Parameters string       `json:"parameters"`
+	Status     string       `json:"status"`
+}
+
 type Content struct {
 	ID        string    `json:"id"`
 	CreatedAt time.Time `json:"created_at"`

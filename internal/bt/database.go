@@ -61,6 +61,17 @@ type Database interface {
 	// FindContentByChecksum returns content metadata by checksum.
 	FindContentByChecksum(checksum string) (*sqlc.Content, error)
 
+	// Backup operation tracking
+
+	// CreateBackupOperation records a new backup operation with "running" status.
+	CreateBackupOperation(operation string, parameters string) (*sqlc.BackupOperation, error)
+
+	// FinishBackupOperation marks a backup operation as finished with the given status.
+	FinishBackupOperation(id int64, status string) error
+
+	// MaxBackupOperationID returns the highest backup operation ID, or 0 if none exist.
+	MaxBackupOperationID() (int64, error)
+
 	// Path returns the database file path (or ":memory:" for in-memory databases).
 	Path() string
 

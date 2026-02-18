@@ -65,3 +65,16 @@ SELECT * FROM contents WHERE id = ? LIMIT 1;
 INSERT INTO contents (id, created_at)
 VALUES (?, ?)
 RETURNING *;
+
+-- Backup operation queries
+
+-- name: InsertBackupOperation :one
+INSERT INTO backup_operations (started_at, operation, parameters)
+VALUES (?, ?, ?)
+RETURNING *;
+
+-- name: UpdateBackupOperationFinished :exec
+UPDATE backup_operations SET finished_at = ?, status = ? WHERE id = ?;
+
+-- name: GetMaxBackupOperationID :one
+SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) AS max_id FROM backup_operations;

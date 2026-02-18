@@ -19,7 +19,8 @@ func main() {
 }
 
 // newApp reads the config and creates a BTApp. The caller must defer app.Close().
-func newApp() (*app.BTApp, error) {
+// operation identifies the CLI command being run (e.g. "AddDirectory", "BackupAll").
+func newApp(operation string) (*app.BTApp, error) {
 	defaults, err := app.GetDefaults()
 	if err != nil {
 		return nil, fmt.Errorf("getting defaults: %w", err)
@@ -30,7 +31,7 @@ func newApp() (*app.BTApp, error) {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
 
-	a, err := app.NewBTApp(cfg)
+	a, err := app.NewBTApp(cfg, operation)
 	if err != nil {
 		return nil, fmt.Errorf("initializing app: %w", err)
 	}
@@ -125,7 +126,7 @@ var dirInitCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Track current directory",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := newApp()
+		a, err := newApp("AddDirectory")
 		if err != nil {
 			return err
 		}
@@ -159,7 +160,7 @@ var addCmd = &cobra.Command{
 	Use:   "add [FILENAME]",
 	Short: "Stage files for backup",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := newApp()
+		a, err := newApp("StageFile")
 		if err != nil {
 			return err
 		}
@@ -189,7 +190,7 @@ var backupCmd = &cobra.Command{
 	Use:   "backup",
 	Short: "Execute backup",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := newApp()
+		a, err := newApp("BackupAll")
 		if err != nil {
 			return err
 		}

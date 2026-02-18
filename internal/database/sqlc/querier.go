@@ -26,10 +26,14 @@ type Querier interface {
 	GetFileSnapshotByID(ctx context.Context, id string) (FileSnapshot, error)
 	GetFileSnapshotsByFileID(ctx context.Context, fileID string) ([]FileSnapshot, error)
 	GetFilesByDirectoryID(ctx context.Context, directoryID string) ([]File, error)
+	GetMaxBackupOperationID(ctx context.Context) (int64, error)
+	// Backup operation queries
+	InsertBackupOperation(ctx context.Context, arg InsertBackupOperationParams) (BackupOperation, error)
 	InsertContent(ctx context.Context, arg InsertContentParams) (Content, error)
 	InsertDirectory(ctx context.Context, arg InsertDirectoryParams) (Directory, error)
 	InsertFile(ctx context.Context, arg InsertFileParams) (File, error)
 	InsertFileSnapshot(ctx context.Context, arg InsertFileSnapshotParams) (FileSnapshot, error)
+	UpdateBackupOperationFinished(ctx context.Context, arg UpdateBackupOperationFinishedParams) error
 	UpdateFileCurrentSnapshot(ctx context.Context, arg UpdateFileCurrentSnapshotParams) error
 	UpdateFileDirectoryAndName(ctx context.Context, arg UpdateFileDirectoryAndNameParams) error
 }

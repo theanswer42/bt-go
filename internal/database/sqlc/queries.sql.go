@@ -246,6 +246,45 @@ func (q *Queries) GetFilesByDirectoryID(ctx context.Context, directoryID string)
 	return items, nil
 }
 
+const getMaxBackupOperationID = `-- name: GetMaxBackupOperationID :one
+SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) AS max_id FROM backup_operations
+`
+
+func (q *Queries) GetMaxBackupOperationID(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getMaxBackupOperationID)
+	var max_id int64
+	err := row.Scan(&max_id)
+	return max_id, err
+}
+
+const insertBackupOperation = `-- name: InsertBackupOperation :one
+
+INSERT INTO backup_operations (started_at, operation, parameters)
+VALUES (?, ?, ?)
+RETURNING id, started_at, finished_at, operation, parameters, status
+`
+
+type InsertBackupOperationParams struct {
+	StartedAt  time.Time `json:"started_at"`
+	Operation  string    `json:"operation"`
+	Parameters string    `json:"parameters"`
+}
+
+// Backup operation queries
+func (q *Queries) InsertBackupOperation(ctx context.Context, arg InsertBackupOperationParams) (BackupOperation, error) {
+	row := q.db.QueryRowContext(ctx, insertBackupOperation, arg.StartedAt, arg.Operation, arg.Parameters)
+	var i BackupOperation
+	err := row.Scan(
+		&i.ID,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Operation,
+		&i.Parameters,
+		&i.Status,
+	)
+	return i, err
+}
+
 const insertContent = `-- name: InsertContent :one
 INSERT INTO contents (id, created_at)
 VALUES (?, ?)
@@ -368,6 +407,21 @@ func (q *Queries) InsertFileSnapshot(ctx context.Context, arg InsertFileSnapshot
 		&i.BornAt,
 	)
 	return i, err
+}
+
+const updateBackupOperationFinished = `-- name: UpdateBackupOperationFinished :exec
+UPDATE backup_operations SET finished_at = ?, status = ? WHERE id = ?
+`
+
+type UpdateBackupOperationFinishedParams struct {
+	FinishedAt sql.NullTime `json:"finished_at"`
+	Status     string       `json:"status"`
+	ID         int64        `json:"id"`
+}
+
+func (q *Queries) UpdateBackupOperationFinished(ctx context.Context, arg UpdateBackupOperationFinishedParams) error {
+	_, err := q.db.ExecContext(ctx, updateBackupOperationFinished, arg.FinishedAt, arg.Status, arg.ID)
+	return err
 }
 
 const updateFileCurrentSnapshot = `-- name: UpdateFileCurrentSnapshot :exec

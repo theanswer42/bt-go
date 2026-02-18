@@ -22,11 +22,13 @@ type BTApp struct {
 	staging bt.StagingArea
 	fsmgr   bt.FilesystemManager
 	service *bt.BTService
+	op      *BackupOperation
 }
 
 // NewBTApp creates a fully wired BTApp from the given config.
+// operation identifies the CLI command being run (e.g. "AddDirectory", "BackupAll").
 // The caller must call Close when done.
-func NewBTApp(cfg *config.Config) (*BTApp, error) {
+func NewBTApp(cfg *config.Config, operation string) (*BTApp, error) {
 	fsmgr := fs.NewOSFilesystemManager()
 
 	if len(cfg.Vaults) == 0 {
@@ -52,7 +54,26 @@ func NewBTApp(cfg *config.Config) (*BTApp, error) {
 		return nil, fmt.Errorf("database schema out of date: %w", err)
 	}
 
+	// Check local DB version against remote vault version.
+	remoteVersion, err := v.GetMetadataVersion(cfg.HostID)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("checking remote metadata version: %w", err)
+	}
+
+	localMax, err := db.MaxBackupOperationID()
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("checking local metadata version: %w", err)
+	}
+
+	if remoteVersion > localMax {
+		db.Close()
+		return nil, fmt.Errorf("local database is behind remote (local=%d, remote=%d): restore from vault or re-initialize", localMax, remoteVersion)
+	}
+
 	svc := bt.NewBTService(db, sa, v, fsmgr)
+	op := NewBackupOperation(operation, "")
 
 	return &BTApp{
 		cfg:     cfg,
@@ -61,11 +82,29 @@ func NewBTApp(cfg *config.Config) (*BTApp, error) {
 		staging: sa,
 		fsmgr:   fsmgr,
 		service: svc,
+		op:      op,
 	}, nil
+}
+
+// persistOperation saves the backup operation to the database, giving it an auto-increment ID.
+// This should only be called for DB-mutating commands.
+func (a *BTApp) persistOperation() error {
+	if a.op.Persisted() {
+		return nil // already persisted
+	}
+	dbOp, err := a.db.CreateBackupOperation(a.op.Operation, a.op.Parameters)
+	if err != nil {
+		return fmt.Errorf("persisting backup operation: %w", err)
+	}
+	a.op.ID = dbOp.ID
+	return nil
 }
 
 // AddDirectory resolves the given path and registers it for tracking.
 func (a *BTApp) AddDirectory(rawPath string) error {
+	if err := a.persistOperation(); err != nil {
+		return err
+	}
 	p, err := a.fsmgr.Resolve(rawPath)
 	if err != nil {
 		return fmt.Errorf("resolving path: %w", err)
@@ -85,59 +124,77 @@ func (a *BTApp) StageFile(rawPath string) error {
 // BackupAll processes all staged files and backs them up to the vault.
 // Returns the number of files backed up.
 func (a *BTApp) BackupAll() (int, error) {
+	if err := a.persistOperation(); err != nil {
+		return 0, err
+	}
 	return a.service.BackupAll()
 }
 
-// Close backs up the database to the vault and closes all resources.
-// It attempts all steps even if earlier ones fail, returning the first error.
+// Close finalizes the operation and closes all resources.
+// For persisted operations: finishes the operation record, backs up the DB, and uploads to vault.
+// For non-persisted operations: just closes the database.
 func (a *BTApp) Close() error {
 	var firstErr error
 
-	// 1. Snapshot the DB to a temp file
-	tmpFile, err := os.CreateTemp("", "bt-db-backup-*.db")
-	if err != nil {
-		firstErr = fmt.Errorf("creating temp file for db backup: %w", err)
-	}
-
-	var tmpPath string
-	if tmpFile != nil {
-		tmpPath = tmpFile.Name()
-		tmpFile.Close()
-
-		if err := a.db.BackupTo(tmpPath); err != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("backing up database: %w", err)
-			}
-			tmpPath = "" // skip vault upload
+	if a.op.Persisted() {
+		// Finalize the operation record
+		if err := a.db.FinishBackupOperation(a.op.ID, a.op.Status); err != nil {
+			firstErr = fmt.Errorf("finishing backup operation: %w", err)
 		}
-	}
 
-	// 2. Close the database
-	if err := a.db.Close(); err != nil {
-		if firstErr == nil {
+		// Snapshot the DB to a temp file
+		tmpFile, err := os.CreateTemp("", "bt-db-backup-*.db")
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("creating temp file for db backup: %w", err)
+			}
+		}
+
+		var tmpPath string
+		if tmpFile != nil {
+			tmpPath = tmpFile.Name()
+			tmpFile.Close()
+
+			if err := a.db.BackupTo(tmpPath); err != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("backing up database: %w", err)
+				}
+				tmpPath = "" // skip vault upload
+			}
+		}
+
+		// Close the database
+		if err := a.db.Close(); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("closing database: %w", err)
+			}
+		}
+
+		// Upload DB snapshot to vault with version = operation ID
+		if tmpPath != "" {
+			if err := a.uploadMetadata(tmpPath, a.op.ID); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+			}
+		}
+
+		// Clean up temp file
+		if tmpPath != "" {
+			os.Remove(tmpPath)
+		}
+	} else {
+		// Non-mutating operation: just close the database, no upload
+		if err := a.db.Close(); err != nil {
 			firstErr = fmt.Errorf("closing database: %w", err)
 		}
-	}
-
-	// 3. Upload DB snapshot to vault
-	if tmpPath != "" {
-		if err := a.uploadMetadata(tmpPath); err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-		}
-	}
-
-	// 4. Clean up temp file
-	if tmpPath != "" {
-		os.Remove(tmpPath)
 	}
 
 	return firstErr
 }
 
 // uploadMetadata opens the temp DB file and uploads it to the vault as metadata.
-func (a *BTApp) uploadMetadata(path string) error {
+func (a *BTApp) uploadMetadata(path string, version int64) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("opening db backup for upload: %w", err)
@@ -149,7 +206,7 @@ func (a *BTApp) uploadMetadata(path string) error {
 		return fmt.Errorf("stat db backup: %w", err)
 	}
 
-	if err := a.vault.PutMetadata(a.cfg.HostID, f, info.Size()); err != nil {
+	if err := a.vault.PutMetadata(a.cfg.HostID, f, info.Size(), version); err != nil {
 		return fmt.Errorf("uploading metadata to vault: %w", err)
 	}
 

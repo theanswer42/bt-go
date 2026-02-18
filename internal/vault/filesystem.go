@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"bt-go/internal/bt"
 )
@@ -72,10 +74,36 @@ func (v *FileSystemVault) GetContent(checksum string, w io.Writer) error {
 	return v.readFile(srcPath, w, fmt.Sprintf("content not found: %s", checksum))
 }
 
-// PutMetadata stores metadata for a specific host.
-func (v *FileSystemVault) PutMetadata(hostID string, r io.Reader, size int64) error {
+// PutMetadata stores metadata for a specific host along with a version marker.
+func (v *FileSystemVault) PutMetadata(hostID string, r io.Reader, size int64, version int64) error {
 	destPath := filepath.Join(v.metadataDir, hostID+".db")
-	return v.writeFile(destPath, r, size)
+	if err := v.writeFile(destPath, r, size); err != nil {
+		return err
+	}
+
+	// Write version file
+	versionPath := filepath.Join(v.metadataDir, hostID+".version")
+	versionData := strconv.FormatInt(version, 10)
+	return os.WriteFile(versionPath, []byte(versionData), 0644)
+}
+
+// GetMetadataVersion returns the metadata version for a host.
+// Returns 0 if no version file exists.
+func (v *FileSystemVault) GetMetadataVersion(hostID string) (int64, error) {
+	versionPath := filepath.Join(v.metadataDir, hostID+".version")
+	data, err := os.ReadFile(versionPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("reading version file: %w", err)
+	}
+
+	version, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parsing version: %w", err)
+	}
+	return version, nil
 }
 
 // GetMetadata retrieves metadata for a specific host and writes it to w.

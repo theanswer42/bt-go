@@ -173,7 +173,7 @@ func TestFileSystemVault_PutMetadata(t *testing.T) {
 	hostID := "host-123"
 	data := "metadata content"
 
-	if err := v.PutMetadata(hostID, strings.NewReader(data), int64(len(data))); err != nil {
+	if err := v.PutMetadata(hostID, strings.NewReader(data), int64(len(data)), 1); err != nil {
 		t.Fatalf("PutMetadata() error = %v", err)
 	}
 
@@ -198,13 +198,13 @@ func TestFileSystemVault_PutMetadata_Overwrites(t *testing.T) {
 
 	// Store first version
 	data1 := "version 1"
-	if err := v.PutMetadata(hostID, strings.NewReader(data1), int64(len(data1))); err != nil {
+	if err := v.PutMetadata(hostID, strings.NewReader(data1), int64(len(data1)), 1); err != nil {
 		t.Fatalf("first PutMetadata() error = %v", err)
 	}
 
 	// Store second version - should overwrite
 	data2 := "version 2"
-	if err := v.PutMetadata(hostID, strings.NewReader(data2), int64(len(data2))); err != nil {
+	if err := v.PutMetadata(hostID, strings.NewReader(data2), int64(len(data2)), 2); err != nil {
 		t.Fatalf("second PutMetadata() error = %v", err)
 	}
 
@@ -228,7 +228,7 @@ func TestFileSystemVault_GetMetadata(t *testing.T) {
 		hostID := "host-123"
 		data := "metadata content"
 
-		if err := v.PutMetadata(hostID, strings.NewReader(data), int64(len(data))); err != nil {
+		if err := v.PutMetadata(hostID, strings.NewReader(data), int64(len(data)), 1); err != nil {
 			t.Fatalf("PutMetadata() error = %v", err)
 		}
 
@@ -250,6 +250,58 @@ func TestFileSystemVault_GetMetadata(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "metadata not found") {
 			t.Errorf("error = %v, want error containing 'metadata not found'", err)
+		}
+	})
+}
+
+func TestFileSystemVault_GetMetadataVersion(t *testing.T) {
+	v, err := NewFileSystemVault("test", t.TempDir())
+	if err != nil {
+		t.Fatalf("NewFileSystemVault() error = %v", err)
+	}
+
+	t.Run("returns 0 when no metadata exists", func(t *testing.T) {
+		version, err := v.GetMetadataVersion("nonexistent")
+		if err != nil {
+			t.Fatalf("GetMetadataVersion() error = %v", err)
+		}
+		if version != 0 {
+			t.Errorf("version = %d, want 0", version)
+		}
+	})
+
+	t.Run("returns version after PutMetadata", func(t *testing.T) {
+		hostID := "host-version-test"
+		data := "metadata"
+		if err := v.PutMetadata(hostID, strings.NewReader(data), int64(len(data)), 42); err != nil {
+			t.Fatalf("PutMetadata() error = %v", err)
+		}
+
+		version, err := v.GetMetadataVersion(hostID)
+		if err != nil {
+			t.Fatalf("GetMetadataVersion() error = %v", err)
+		}
+		if version != 42 {
+			t.Errorf("version = %d, want 42", version)
+		}
+	})
+
+	t.Run("updates version on subsequent PutMetadata", func(t *testing.T) {
+		hostID := "host-version-update"
+		data := "metadata"
+		if err := v.PutMetadata(hostID, strings.NewReader(data), int64(len(data)), 1); err != nil {
+			t.Fatalf("first PutMetadata() error = %v", err)
+		}
+		if err := v.PutMetadata(hostID, strings.NewReader(data), int64(len(data)), 5); err != nil {
+			t.Fatalf("second PutMetadata() error = %v", err)
+		}
+
+		version, err := v.GetMetadataVersion(hostID)
+		if err != nil {
+			t.Fatalf("GetMetadataVersion() error = %v", err)
+		}
+		if version != 5 {
+			t.Errorf("version = %d, want 5", version)
 		}
 	})
 }

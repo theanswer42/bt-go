@@ -2,6 +2,15 @@
 -- DO NOT EDIT MANUALLY. Run 'make generate-schema' to regenerate.
 -- Source: internal/database/migrations/files/*.sql
 
+CREATE TABLE backup_operations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at DATETIME NOT NULL,
+    finished_at DATETIME,
+    operation TEXT NOT NULL,
+    parameters TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'running'
+);
+
 CREATE TABLE contents (
     id TEXT PRIMARY KEY,  -- SHA-256 checksum (not a UUID)
     created_at DATETIME NOT NULL

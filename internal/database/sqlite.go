@@ -430,6 +430,40 @@ func snapshotsEqual(a, b *sqlc.FileSnapshot) bool {
 		a.BornAt == b.BornAt
 }
 
+// Backup operation tracking
+
+func (s *SQLiteDatabase) CreateBackupOperation(operation string, parameters string) (*sqlc.BackupOperation, error) {
+	op, err := s.queries.InsertBackupOperation(context.Background(), sqlc.InsertBackupOperationParams{
+		StartedAt:  time.Now(),
+		Operation:  operation,
+		Parameters: parameters,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating backup operation: %w", err)
+	}
+	return &op, nil
+}
+
+func (s *SQLiteDatabase) FinishBackupOperation(id int64, status string) error {
+	err := s.queries.UpdateBackupOperationFinished(context.Background(), sqlc.UpdateBackupOperationFinishedParams{
+		FinishedAt: sql.NullTime{Time: time.Now(), Valid: true},
+		Status:     status,
+		ID:         id,
+	})
+	if err != nil {
+		return fmt.Errorf("finishing backup operation: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteDatabase) MaxBackupOperationID() (int64, error) {
+	id, err := s.queries.GetMaxBackupOperationID(context.Background())
+	if err != nil {
+		return 0, fmt.Errorf("getting max backup operation ID: %w", err)
+	}
+	return id, nil
+}
+
 // Content operations
 
 func (s *SQLiteDatabase) CreateContent(checksum string) (*sqlc.Content, error) {

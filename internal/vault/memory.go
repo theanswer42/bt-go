@@ -13,18 +13,20 @@ import (
 // It stores all content and metadata in memory, making it useful for testing.
 // This implementation is safe for concurrent use.
 type MemoryVault struct {
-	name     string
-	content  map[string][]byte // checksum -> content
-	metadata map[string][]byte // hostID -> metadata
-	mu       sync.RWMutex
+	name            string
+	content         map[string][]byte // checksum -> content
+	metadata        map[string][]byte // hostID -> metadata
+	metadataVersion map[string]int64  // hostID -> version
+	mu              sync.RWMutex
 }
 
 // NewMemoryVault creates a new in-memory vault with the given name.
 func NewMemoryVault(name string) *MemoryVault {
 	return &MemoryVault{
-		name:     name,
-		content:  make(map[string][]byte),
-		metadata: make(map[string][]byte),
+		name:            name,
+		content:         make(map[string][]byte),
+		metadata:        make(map[string][]byte),
+		metadataVersion: make(map[string]int64),
 	}
 }
 
@@ -65,7 +67,7 @@ func (m *MemoryVault) GetContent(checksum string, w io.Writer) error {
 }
 
 // PutMetadata stores metadata for a specific host.
-func (m *MemoryVault) PutMetadata(hostID string, r io.Reader, size int64) error {
+func (m *MemoryVault) PutMetadata(hostID string, r io.Reader, size int64, version int64) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return fmt.Errorf("failed to read metadata: %w", err)
@@ -79,7 +81,17 @@ func (m *MemoryVault) PutMetadata(hostID string, r io.Reader, size int64) error 
 	defer m.mu.Unlock()
 
 	m.metadata[hostID] = data
+	m.metadataVersion[hostID] = version
 	return nil
+}
+
+// GetMetadataVersion returns the metadata version for a host.
+// Returns 0 if no metadata has been stored for this host.
+func (m *MemoryVault) GetMetadataVersion(hostID string) (int64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.metadataVersion[hostID], nil
 }
 
 // GetMetadata retrieves metadata for a specific host.
