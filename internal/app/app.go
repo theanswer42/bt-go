@@ -6,6 +6,7 @@ import (
 
 	"bt-go/internal/bt"
 	"bt-go/internal/config"
+	"bt-go/internal/database/sqlc"
 	"bt-go/internal/database"
 	"bt-go/internal/fs"
 	"bt-go/internal/staging"
@@ -128,6 +129,20 @@ func (a *BTApp) GetStatus(rawPath string, recursive bool) ([]*bt.FileStatus, err
 		return nil, fmt.Errorf("resolving path: %w", err)
 	}
 	return a.service.GetStatus(p, recursive)
+}
+
+// GetFileHistory resolves the given path and returns its backup history.
+func (a *BTApp) GetFileHistory(rawPath string) ([]*bt.FileHistoryEntry, error) {
+	p, err := a.fsmgr.Resolve(rawPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolving path: %w", err)
+	}
+	return a.service.GetFileHistory(p)
+}
+
+// GetHistory returns the most recent backup operations.
+func (a *BTApp) GetHistory(limit int) ([]*sqlc.BackupOperation, error) {
+	return a.service.GetHistory(limit)
 }
 
 // BackupAll processes all staged files and backs them up to the vault.

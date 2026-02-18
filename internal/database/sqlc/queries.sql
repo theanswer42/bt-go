@@ -78,3 +78,6 @@ UPDATE backup_operations SET finished_at = ?, status = ? WHERE id = ?;
 
 -- name: GetMaxBackupOperationID :one
 SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) AS max_id FROM backup_operations;
+
+-- name: GetBackupOperations :many
+SELECT * FROM backup_operations ORDER BY id DESC LIMIT ?;

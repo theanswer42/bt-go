@@ -72,6 +72,9 @@ type Database interface {
 	// FinishBackupOperation marks a backup operation as finished with the given status.
 	FinishBackupOperation(id int64, status string) error
 
+	// ListBackupOperations returns the most recent backup operations, ordered by ID descending.
+	ListBackupOperations(limit int) ([]*sqlc.BackupOperation, error)
+
 	// MaxBackupOperationID returns the highest backup operation ID, or 0 if none exist.
 	MaxBackupOperationID() (int64, error)
 

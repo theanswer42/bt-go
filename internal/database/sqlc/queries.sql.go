@@ -20,6 +20,40 @@ func (q *Queries) DeleteDirectoryByID(ctx context.Context, id string) error {
 	return err
 }
 
+const getBackupOperations = `-- name: GetBackupOperations :many
+SELECT id, started_at, finished_at, operation, parameters, status FROM backup_operations ORDER BY id DESC LIMIT ?
+`
+
+func (q *Queries) GetBackupOperations(ctx context.Context, limit int64) ([]BackupOperation, error) {
+	rows, err := q.db.QueryContext(ctx, getBackupOperations, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BackupOperation
+	for rows.Next() {
+		var i BackupOperation
+		if err := rows.Scan(
+			&i.ID,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.Operation,
+			&i.Parameters,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getContentByID = `-- name: GetContentByID :one
 
 SELECT id, created_at FROM contents WHERE id = ? LIMIT 1

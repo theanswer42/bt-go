@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"bt-go/internal/app"
 	"bt-go/internal/config"
@@ -252,9 +253,83 @@ var logCmd = &cobra.Command{
 	Use:   "log FILENAME",
 	Short: "View file history",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		filename := args[0]
-		fmt.Printf("Would show version history for: %s\n", filename)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		a, err := newApp("GetFileHistory")
+		if err != nil {
+			return err
+		}
+		defer a.Close()
+
+		absPath, err := filepath.Abs(args[0])
+		if err != nil {
+			return fmt.Errorf("resolving path: %w", err)
+		}
+
+		entries, err := a.GetFileHistory(absPath)
+		if err != nil {
+			return err
+		}
+
+		if len(entries) == 0 {
+			fmt.Println("No backup history.")
+			return nil
+		}
+
+		for _, e := range entries {
+			current := ""
+			if e.IsCurrent {
+				current = "  [current]"
+			}
+			fmt.Printf("%s  %s  %d  mtime:%s%s\n",
+				e.ContentChecksum[:12],
+				e.BackedUpAt.Format("2006-01-02 15:04:05"),
+				e.Size,
+				e.ModifiedAt.Format("2006-01-02 15:04:05"),
+				current,
+			)
+		}
+		return nil
+	},
+}
+
+// history command
+var historyCmd = &cobra.Command{
+	Use:   "history",
+	Short: "View backup operation history",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		limit, _ := cmd.Flags().GetInt("limit")
+
+		a, err := newApp("GetHistory")
+		if err != nil {
+			return err
+		}
+		defer a.Close()
+
+		ops, err := a.GetHistory(limit)
+		if err != nil {
+			return err
+		}
+
+		if len(ops) == 0 {
+			fmt.Println("No backup operations recorded.")
+			return nil
+		}
+
+		for _, op := range ops {
+			duration := ""
+			if op.FinishedAt.Valid {
+				d := op.FinishedAt.Time.Sub(op.StartedAt)
+				duration = d.Truncate(time.Millisecond).String()
+			}
+			fmt.Printf("#%d  %-15s  %s  %-10s  %s\n",
+				op.ID,
+				op.Operation,
+				op.StartedAt.Format("2006-01-02 15:04:05"),
+				op.Status,
+				duration,
+			)
+		}
+		return nil
 	},
 }
 
@@ -287,5 +362,7 @@ func init() {
 	rootCmd.AddCommand(addCmd)
 	rootCmd.AddCommand(backupCmd)
 	rootCmd.AddCommand(logCmd)
+	rootCmd.AddCommand(historyCmd)
+	historyCmd.Flags().IntP("limit", "n", 50, "Maximum number of operations to show")
 	rootCmd.AddCommand(restoreCmd)
 }

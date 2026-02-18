@@ -469,6 +469,19 @@ func (s *SQLiteDatabase) FinishBackupOperation(id int64, status string) error {
 	return nil
 }
 
+func (s *SQLiteDatabase) ListBackupOperations(limit int) ([]*sqlc.BackupOperation, error) {
+	ops, err := s.queries.GetBackupOperations(context.Background(), int64(limit))
+	if err != nil {
+		return nil, fmt.Errorf("listing backup operations: %w", err)
+	}
+
+	result := make([]*sqlc.BackupOperation, len(ops))
+	for i := range ops {
+		result[i] = &ops[i]
+	}
+	return result, nil
+}
+
 func (s *SQLiteDatabase) MaxBackupOperationID() (int64, error) {
 	id, err := s.queries.GetMaxBackupOperationID(context.Background())
 	if err != nil {

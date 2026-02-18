@@ -10,6 +10,7 @@ import (
 
 type Querier interface {
 	DeleteDirectoryByID(ctx context.Context, id string) error
+	GetBackupOperations(ctx context.Context, limit int64) ([]BackupOperation, error)
 	// Content queries
 	GetContentByID(ctx context.Context, id string) (Content, error)
 	GetDirectoriesByPathPrefix(ctx context.Context, path string) ([]Directory, error)
