@@ -5,8 +5,6 @@ Staging the same file twice - if the previous "stage" was less the X
 minutes, remove the old operation and add new. This should be
 configurable as `staging.file_change_threshold`
 
-bt dir status
-
 bt log
 
 bt restore

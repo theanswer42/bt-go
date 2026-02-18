@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"bt-go/internal/bt"
 	"bt-go/internal/staging"
 )
 
@@ -10,11 +11,11 @@ const (
 )
 
 // NewTestStagingArea creates a new in-memory staging area for testing.
-func NewTestStagingArea(fsmgr *MockFilesystemManager) *staging.MemoryStagingArea {
+func NewTestStagingArea(fsmgr *MockFilesystemManager) bt.StagingArea {
 	return staging.NewMemoryStagingArea(fsmgr, DefaultStagingMaxSize)
 }
 
 // NewTestStagingAreaWithSize creates a new in-memory staging area with a custom max size.
-func NewTestStagingAreaWithSize(fsmgr *MockFilesystemManager, maxSize int64) *staging.MemoryStagingArea {
+func NewTestStagingAreaWithSize(fsmgr *MockFilesystemManager, maxSize int64) bt.StagingArea {
 	return staging.NewMemoryStagingArea(fsmgr, maxSize)
 }
