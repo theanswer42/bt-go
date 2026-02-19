@@ -59,14 +59,51 @@ func (s *BTService) AddDirectory(path *Path) error {
 	return nil
 }
 
-// StageFile stages a file for backup.
-// The path must point to a regular file within a tracked directory.
-func (s *BTService) StageFile(path *Path) error {
-	if path.IsDir() {
-		return fmt.Errorf("path is a directory, not a file: %s", path.String())
+// StageFiles stages one or more files for backup.
+// If path is a regular file, it stages that single file.
+// If path is a directory, it discovers files and stages them all.
+// When recursive is true, files in subdirectories are included.
+// Returns the number of files staged.
+func (s *BTService) StageFiles(path *Path, recursive bool) (int, error) {
+	if !path.IsDir() {
+		if err := s.stageOneFile(path); err != nil {
+			return 0, err
+		}
+		return 1, nil
 	}
 
-	// Find the directory that contains this file
+	// Find the tracked directory for this path.
+	directory, err := s.database.FindDirectoryByPath(path.String())
+	if err != nil {
+		return 0, fmt.Errorf("finding directory: %w", err)
+	}
+	if directory == nil {
+		directory, err = s.database.SearchDirectoryForPath(path.String())
+		if err != nil {
+			return 0, fmt.Errorf("searching for directory: %w", err)
+		}
+	}
+	if directory == nil {
+		return 0, fmt.Errorf("directory is not tracked: %s", path.String())
+	}
+
+	// Discover files on disk.
+	files, err := s.fsmgr.FindFiles(path, recursive)
+	if err != nil {
+		return 0, fmt.Errorf("finding files: %w", err)
+	}
+
+	for _, f := range files {
+		if err := s.stageOneFile(f); err != nil {
+			return 0, err
+		}
+	}
+
+	return len(files), nil
+}
+
+// stageOneFile stages a single file for backup.
+func (s *BTService) stageOneFile(path *Path) error {
 	directory, err := s.database.SearchDirectoryForPath(path.String())
 	if err != nil {
 		return fmt.Errorf("searching for directory: %w", err)
@@ -75,13 +112,11 @@ func (s *BTService) StageFile(path *Path) error {
 		return fmt.Errorf("file is not within a tracked directory: %s", path.String())
 	}
 
-	// Calculate the relative path within the directory
 	relativePath, err := filepath.Rel(directory.Path, path.String())
 	if err != nil {
 		return fmt.Errorf("calculating relative path: %w", err)
 	}
 
-	// Stage the file for backup (no database writes here)
 	if err := s.stagingArea.Stage(directory, relativePath, path); err != nil {
 		return fmt.Errorf("staging file: %w", err)
 	}

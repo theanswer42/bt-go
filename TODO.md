@@ -1,25 +1,25 @@
 ## Tests
 
 ## Features
-### threshold since last back up
+implementation of .btignore + ignore in config
+
+bt restore
+
+logs
+ - logs for everything to local
+ - operation logs in table
+
+
 backing up the same file twice - if the previous "stage" was less the
 X minutes, remove the old operation and add new. This should be
 configurable as `daemon.file_change_threshold`
 Note: this should only be enforced for files being staged by the
 daemon. manual call with with `bt add x` should not enforce this.
 
-bt log
 
-bt restore
- - include implementation of .btignore + ignore in config
 
-bt history
 
-bt add -a -r
 
-logs
- - logs for everything to local
- - operation logs in table
 
 encryption?
 

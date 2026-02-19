@@ -113,13 +113,16 @@ func (a *BTApp) AddDirectory(rawPath string) error {
 	return a.service.AddDirectory(p)
 }
 
-// StageFile resolves the given path and stages it for backup.
-func (a *BTApp) StageFile(rawPath string) error {
+// StageFiles resolves the given path and stages file(s) for backup.
+// If the path is a directory, all discovered files are staged.
+// When recursive is true, files in subdirectories are included.
+// Returns the number of files staged.
+func (a *BTApp) StageFiles(rawPath string, recursive bool) (int, error) {
 	p, err := a.fsmgr.Resolve(rawPath)
 	if err != nil {
-		return fmt.Errorf("resolving path: %w", err)
+		return 0, fmt.Errorf("resolving path: %w", err)
 	}
-	return a.service.StageFile(p)
+	return a.service.StageFiles(p, recursive)
 }
 
 // GetStatus returns the backup status of files under the given path.

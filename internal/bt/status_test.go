@@ -87,8 +87,8 @@ func TestBTService_GetStatus(t *testing.T) {
 		svc.AddDirectory(dirPath)
 
 		filePath, _ := fsmgr.Resolve("/home/user/docs/file.txt")
-		if err := svc.StageFile(filePath); err != nil {
-			t.Fatalf("StageFile() error = %v", err)
+		if _, err := svc.StageFiles(filePath, false); err != nil {
+			t.Fatalf("StageFiles() error = %v", err)
 		}
 
 		statuses, err := svc.GetStatus(dirPath, false)
@@ -119,7 +119,7 @@ func TestBTService_GetStatus(t *testing.T) {
 		svc.AddDirectory(dirPath)
 
 		filePath, _ := fsmgr.Resolve("/home/user/docs/file.txt")
-		svc.StageFile(filePath)
+		svc.StageFiles(filePath, false)
 
 		if _, err := svc.BackupAll(); err != nil {
 			t.Fatalf("BackupAll() error = %v", err)
@@ -153,7 +153,7 @@ func TestBTService_GetStatus(t *testing.T) {
 		svc.AddDirectory(dirPath)
 
 		filePath, _ := fsmgr.Resolve("/home/user/docs/file.txt")
-		svc.StageFile(filePath)
+		svc.StageFiles(filePath, false)
 		svc.BackupAll()
 
 		// Modify the file (change mtime)

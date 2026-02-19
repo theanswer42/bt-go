@@ -45,8 +45,8 @@ func TestBTService_BackupAll(t *testing.T) {
 
 		// Stage file
 		filePath, _ := fsmgr.Resolve("/home/user/docs/file.txt")
-		if err := svc.StageFile(filePath); err != nil {
-			t.Fatalf("StageFile() error = %v", err)
+		if _, err := svc.StageFiles(filePath, false); err != nil {
+			t.Fatalf("StageFiles() error = %v", err)
 		}
 
 		// Verify file is staged
@@ -92,8 +92,8 @@ func TestBTService_BackupAll(t *testing.T) {
 		// Stage files
 		for _, name := range []string{"file1.txt", "file2.txt", "file3.txt"} {
 			filePath, _ := fsmgr.Resolve("/home/user/docs/" + name)
-			if err := svc.StageFile(filePath); err != nil {
-				t.Fatalf("StageFile(%s) error = %v", name, err)
+			if _, err := svc.StageFiles(filePath, false); err != nil {
+				t.Fatalf("StageFiles(%s) error = %v", name, err)
 			}
 		}
 
@@ -132,10 +132,10 @@ func TestBTService_BackupAll(t *testing.T) {
 		svc.AddDirectory(dirPath)
 
 		file1Path, _ := fsmgr.Resolve("/home/user/docs/file1.txt")
-		svc.StageFile(file1Path)
+		svc.StageFiles(file1Path, false)
 
 		file2Path, _ := fsmgr.Resolve("/home/user/docs/file2.txt")
-		svc.StageFile(file2Path)
+		svc.StageFiles(file2Path, false)
 
 		// Backup all
 		count, err := svc.BackupAll()
@@ -172,7 +172,7 @@ func TestBTService_BackupAll(t *testing.T) {
 
 		// First backup
 		filePath, _ := fsmgr.Resolve("/home/user/docs/file.txt")
-		svc.StageFile(filePath)
+		svc.StageFiles(filePath, false)
 		count1, err := svc.BackupAll()
 		if err != nil {
 			t.Fatalf("first BackupAll() error = %v", err)
@@ -182,7 +182,7 @@ func TestBTService_BackupAll(t *testing.T) {
 		}
 
 		// Stage same file again (content unchanged)
-		svc.StageFile(filePath)
+		svc.StageFiles(filePath, false)
 		count2, err := svc.BackupAll()
 		if err != nil {
 			t.Fatalf("second BackupAll() error = %v", err)

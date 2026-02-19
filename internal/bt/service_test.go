@@ -65,3 +65,121 @@ func TestBTService_AddDirectory(t *testing.T) {
 		}
 	})
 }
+
+func TestBTService_StageFiles(t *testing.T) {
+	setup := func(t *testing.T) (*bt.BTService, *testutil.MockFilesystemManager) {
+		t.Helper()
+		db := testutil.NewTestDatabase(t)
+		fsmgr := testutil.NewMockFilesystemManager()
+		staging := testutil.NewTestStagingArea(fsmgr)
+		svc := bt.NewBTService(db, staging, nil, fsmgr)
+		return svc, fsmgr
+	}
+
+	t.Run("stages a single file", func(t *testing.T) {
+		t.Parallel()
+		svc, fsmgr := setup(t)
+
+		fsmgr.AddDirectory("/home/user/docs")
+		fsmgr.AddFile("/home/user/docs/file.txt", []byte("content"))
+
+		dirPath, _ := fsmgr.Resolve("/home/user/docs")
+		svc.AddDirectory(dirPath)
+
+		filePath, _ := fsmgr.Resolve("/home/user/docs/file.txt")
+		count, err := svc.StageFiles(filePath, false)
+		if err != nil {
+			t.Fatalf("StageFiles() error = %v", err)
+		}
+		if count != 1 {
+			t.Errorf("StageFiles() count = %d, want 1", count)
+		}
+	})
+
+	t.Run("stages all top-level files in directory", func(t *testing.T) {
+		t.Parallel()
+		svc, fsmgr := setup(t)
+
+		fsmgr.AddDirectory("/home/user/docs")
+		fsmgr.AddFile("/home/user/docs/a.txt", []byte("aaa"))
+		fsmgr.AddFile("/home/user/docs/b.txt", []byte("bbb"))
+		fsmgr.AddFile("/home/user/docs/sub/c.txt", []byte("ccc"))
+
+		dirPath, _ := fsmgr.Resolve("/home/user/docs")
+		svc.AddDirectory(dirPath)
+
+		count, err := svc.StageFiles(dirPath, false)
+		if err != nil {
+			t.Fatalf("StageFiles() error = %v", err)
+		}
+		if count != 2 {
+			t.Errorf("StageFiles() count = %d, want 2", count)
+		}
+	})
+
+	t.Run("recursive stages files in subdirectories", func(t *testing.T) {
+		t.Parallel()
+		svc, fsmgr := setup(t)
+
+		fsmgr.AddDirectory("/home/user/docs")
+		fsmgr.AddFile("/home/user/docs/a.txt", []byte("aaa"))
+		fsmgr.AddFile("/home/user/docs/sub/b.txt", []byte("bbb"))
+		fsmgr.AddFile("/home/user/docs/sub/deep/c.txt", []byte("ccc"))
+
+		dirPath, _ := fsmgr.Resolve("/home/user/docs")
+		svc.AddDirectory(dirPath)
+
+		count, err := svc.StageFiles(dirPath, true)
+		if err != nil {
+			t.Fatalf("StageFiles() error = %v", err)
+		}
+		if count != 3 {
+			t.Errorf("StageFiles() count = %d, want 3", count)
+		}
+	})
+
+	t.Run("returns error for untracked directory", func(t *testing.T) {
+		t.Parallel()
+		svc, fsmgr := setup(t)
+
+		fsmgr.AddDirectory("/home/user/docs")
+		fsmgr.AddFile("/home/user/docs/file.txt", []byte("content"))
+
+		dirPath, _ := fsmgr.Resolve("/home/user/docs")
+		_, err := svc.StageFiles(dirPath, false)
+		if err == nil {
+			t.Fatal("expected error for untracked directory")
+		}
+	})
+
+	t.Run("empty directory stages zero files", func(t *testing.T) {
+		t.Parallel()
+		svc, fsmgr := setup(t)
+
+		fsmgr.AddDirectory("/home/user/docs")
+
+		dirPath, _ := fsmgr.Resolve("/home/user/docs")
+		svc.AddDirectory(dirPath)
+
+		count, err := svc.StageFiles(dirPath, false)
+		if err != nil {
+			t.Fatalf("StageFiles() error = %v", err)
+		}
+		if count != 0 {
+			t.Errorf("StageFiles() count = %d, want 0", count)
+		}
+	})
+
+	t.Run("returns error for file not in tracked directory", func(t *testing.T) {
+		t.Parallel()
+		svc, fsmgr := setup(t)
+
+		fsmgr.AddFile("/home/user/untracked/file.txt", []byte("content"))
+
+		filePath, _ := fsmgr.Resolve("/home/user/untracked/file.txt")
+		_, err := svc.StageFiles(filePath, false)
+		if err == nil {
+			t.Fatal("expected error for file not in tracked directory")
+		}
+	})
+}

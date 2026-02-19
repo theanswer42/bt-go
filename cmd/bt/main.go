@@ -199,10 +199,12 @@ var dirStatusCmd = &cobra.Command{
 
 // add command
 var addCmd = &cobra.Command{
-	Use:   "add [FILENAME]",
+	Use:   "add [PATH]",
 	Short: "Stage files for backup",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		a, err := newApp("StageFile")
+		recursive, _ := cmd.Flags().GetBool("recursive")
+
+		a, err := newApp("StageFiles")
 		if err != nil {
 			return err
 		}
@@ -218,11 +220,12 @@ var addCmd = &cobra.Command{
 			return fmt.Errorf("resolving path: %w", err)
 		}
 
-		if err := a.StageFile(absTarget); err != nil {
-			return fmt.Errorf("staging file: %w", err)
+		count, err := a.StageFiles(absTarget, recursive)
+		if err != nil {
+			return fmt.Errorf("staging: %w", err)
 		}
 
-		fmt.Printf("Staged: %s\n", absTarget)
+		fmt.Printf("Staged %d file(s)\n", count)
 		return nil
 	},
 }
@@ -360,6 +363,7 @@ func init() {
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(dirCmd)
 	rootCmd.AddCommand(addCmd)
+	addCmd.Flags().BoolP("recursive", "r", false, "Recurse into subdirectories")
 	rootCmd.AddCommand(backupCmd)
 	rootCmd.AddCommand(logCmd)
 	rootCmd.AddCommand(historyCmd)

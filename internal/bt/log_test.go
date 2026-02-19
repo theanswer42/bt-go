@@ -31,13 +31,13 @@ func TestBTService_GetFileHistory(t *testing.T) {
 
 		// First backup
 		filePath, _ := fsmgr.Resolve("/home/user/docs/file.txt")
-		svc.StageFile(filePath)
+		svc.StageFiles(filePath, false)
 		svc.BackupAll()
 
 		// Modify and backup again
 		fsmgr.UpdateFile("/home/user/docs/file.txt", []byte("version2"), time.Now().Add(time.Hour))
 		filePath, _ = fsmgr.Resolve("/home/user/docs/file.txt")
-		svc.StageFile(filePath)
+		svc.StageFiles(filePath, false)
 		svc.BackupAll()
 
 		entries, err := svc.GetFileHistory(filePath)
