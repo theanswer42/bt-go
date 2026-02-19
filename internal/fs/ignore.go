@@ -9,7 +9,7 @@ import (
 )
 
 // defaultIgnorePatterns are always applied regardless of config or .btignore.
-var defaultIgnorePatterns = []string{".btignore"}
+var defaultIgnorePatterns = []string{".btignore", "*.btrestored"}
 
 // ignorePattern is a parsed ignore pattern with its matching strategy.
 type ignorePattern struct {

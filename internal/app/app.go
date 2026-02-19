@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"bt-go/internal/bt"
 	"bt-go/internal/config"
@@ -146,6 +147,18 @@ func (a *BTApp) GetFileHistory(rawPath string) ([]*bt.FileHistoryEntry, error) {
 // GetHistory returns the most recent backup operations.
 func (a *BTApp) GetHistory(limit int) ([]*sqlc.BackupOperation, error) {
 	return a.service.GetHistory(limit)
+}
+
+// RestoreFiles resolves the given path and restores file(s) from the vault.
+// The path may not exist on disk — resolution uses filepath.Abs only.
+// If checksum is non-empty, restores a specific version (file only, not directory).
+// Returns the list of restored file paths.
+func (a *BTApp) RestoreFiles(rawPath string, checksum string) ([]string, error) {
+	absPath, err := filepath.Abs(rawPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolving path: %w", err)
+	}
+	return a.service.Restore(absPath, checksum)
 }
 
 // BackupAll processes all staged files and backs them up to the vault.

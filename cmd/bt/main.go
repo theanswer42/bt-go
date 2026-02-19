@@ -338,12 +338,30 @@ var historyCmd = &cobra.Command{
 
 // restore command
 var restoreCmd = &cobra.Command{
-	Use:   "restore FILENAME",
-	Short: "Restore a file",
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		filename := args[0]
-		fmt.Printf("Would restore file: %s\n", filename)
+	Use:   "restore FILENAME [CHECKSUM]",
+	Short: "Restore a file or directory from backup",
+	Args:  cobra.RangeArgs(1, 2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		a, err := newApp("Restore")
+		if err != nil {
+			return err
+		}
+		defer a.Close()
+
+		var checksum string
+		if len(args) > 1 {
+			checksum = args[1]
+		}
+
+		paths, err := a.RestoreFiles(args[0], checksum)
+		if err != nil {
+			return err
+		}
+
+		for _, p := range paths {
+			fmt.Printf("Restored: %s\n", p)
+		}
+		return nil
 	},
 }
 

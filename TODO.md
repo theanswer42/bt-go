@@ -1,9 +1,6 @@
 ## Tests
 
 ## Features
-implementation of .btignore + ignore in config
-
-bt restore
 
 logs
  - logs for everything to local
