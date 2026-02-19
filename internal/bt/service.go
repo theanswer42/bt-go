@@ -112,6 +112,14 @@ func (s *BTService) stageOneFile(path *Path) error {
 		return fmt.Errorf("file is not within a tracked directory: %s", path.String())
 	}
 
+	ignored, err := s.fsmgr.IsIgnored(path, directory.Path)
+	if err != nil {
+		return fmt.Errorf("checking ignore rules: %w", err)
+	}
+	if ignored {
+		return fmt.Errorf("file is ignored: %s", path.String())
+	}
+
 	relativePath, err := filepath.Rel(directory.Path, path.String())
 	if err != nil {
 		return fmt.Errorf("calculating relative path: %w", err)

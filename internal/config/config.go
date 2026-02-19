@@ -11,12 +11,18 @@ import (
 
 // Config represents the main configuration for bt.
 type Config struct {
-	HostID   string         `toml:"host_id"`
-	BaseDir  string         `toml:"base_dir"`
-	LogDir   string         `toml:"log_dir"`
-	Vaults   []VaultConfig  `toml:"vaults"`
-	Database DatabaseConfig `toml:"database"`
-	Staging  StagingConfig  `toml:"staging"`
+	HostID     string           `toml:"host_id"`
+	BaseDir    string           `toml:"base_dir"`
+	LogDir     string           `toml:"log_dir"`
+	Vaults     []VaultConfig    `toml:"vaults"`
+	Database   DatabaseConfig   `toml:"database"`
+	Staging    StagingConfig    `toml:"staging"`
+	Filesystem FilesystemConfig `toml:"filesystem"`
+}
+
+// FilesystemConfig holds filesystem-related settings.
+type FilesystemConfig struct {
+	Ignore []string `toml:"ignore"`
 }
 
 // VaultConfig represents configuration for a vault backend.

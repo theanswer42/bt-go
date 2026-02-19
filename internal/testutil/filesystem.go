@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	btfs "bt-go/internal/fs"
+
 	"bt-go/internal/bt"
 )
 
@@ -26,7 +28,8 @@ type MockFile struct {
 
 // MockFilesystemManager is an in-memory filesystem for testing.
 type MockFilesystemManager struct {
-	files map[string]*MockFile
+	files          map[string]*MockFile
+	ignorePatterns []string
 }
 
 // NewMockFilesystemManager creates a new mock filesystem.
@@ -34,6 +37,11 @@ func NewMockFilesystemManager() *MockFilesystemManager {
 	return &MockFilesystemManager{
 		files: make(map[string]*MockFile),
 	}
+}
+
+// SetIgnorePatterns sets ignore patterns for the mock filesystem.
+func (m *MockFilesystemManager) SetIgnorePatterns(patterns []string) {
+	m.ignorePatterns = patterns
 }
 
 // AddFile adds a file to the mock filesystem.
@@ -164,6 +172,7 @@ func (m *MockFilesystemManager) FindFiles(path *bt.Path, recursive bool) ([]*bt.
 	}
 
 	dir := path.String()
+	matcher := btfs.NewIgnoreMatcher(m.ignorePatterns)
 	var paths []*bt.Path
 
 	for p, f := range m.files {
@@ -181,6 +190,9 @@ func (m *MockFilesystemManager) FindFiles(path *bt.Path, recursive bool) ([]*bt.
 				continue
 			}
 		}
+		if matcher.Match(rel) {
+			continue
+		}
 		info := &mockFileInfo{
 			name:     filepath.Base(p),
 			size:     int64(len(f.Content)),
@@ -193,6 +205,16 @@ func (m *MockFilesystemManager) FindFiles(path *bt.Path, recursive bool) ([]*bt.
 	}
 
 	return paths, nil
+}
+
+// IsIgnored checks whether a file path should be ignored based on ignore patterns.
+func (m *MockFilesystemManager) IsIgnored(path *bt.Path, dirRoot string) (bool, error) {
+	rel, err := filepath.Rel(dirRoot, path.String())
+	if err != nil {
+		return false, fmt.Errorf("computing relative path: %w", err)
+	}
+	matcher := btfs.NewIgnoreMatcher(m.ignorePatterns)
+	return matcher.Match(rel), nil
 }
 
 // Compile-time check

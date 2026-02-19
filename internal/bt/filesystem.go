@@ -41,5 +41,10 @@ type FilesystemManager interface {
 	// If recursive is false, only files directly in the directory are returned.
 	// If recursive is true, files in all subdirectories are included.
 	// Symlinks, devices, and other special files are skipped.
+	// Ignored files (from hard-coded patterns, config, and .btignore) are excluded.
 	FindFiles(path *Path, recursive bool) ([]*Path, error)
+
+	// IsIgnored checks whether a file path should be ignored based on
+	// ignore rules (hard-coded patterns, config patterns, and .btignore in dirRoot).
+	IsIgnored(path *Path, dirRoot string) (bool, error)
 }

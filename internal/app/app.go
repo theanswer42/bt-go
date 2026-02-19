@@ -30,7 +30,7 @@ type BTApp struct {
 // operation identifies the CLI command being run (e.g. "AddDirectory", "BackupAll").
 // The caller must call Close when done.
 func NewBTApp(cfg *config.Config, operation string) (*BTApp, error) {
-	fsmgr := fs.NewOSFilesystemManager()
+	fsmgr := fs.NewOSFilesystemManager(cfg.Filesystem.Ignore)
 
 	if len(cfg.Vaults) == 0 {
 		return nil, fmt.Errorf("no vaults configured")

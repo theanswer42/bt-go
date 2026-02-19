@@ -182,4 +182,65 @@ func TestBTService_StageFiles(t *testing.T) {
 			t.Fatal("expected error for file not in tracked directory")
 		}
 	})
+
+	t.Run("returns error when staging an ignored file directly", func(t *testing.T) {
+		t.Parallel()
+		svc, fsmgr := setup(t)
+		fsmgr.SetIgnorePatterns([]string{"*.log"})
+
+		fsmgr.AddDirectory("/home/user/docs")
+		fsmgr.AddFile("/home/user/docs/app.log", []byte("log data"))
+
+		dirPath, _ := fsmgr.Resolve("/home/user/docs")
+		svc.AddDirectory(dirPath)
+
+		filePath, _ := fsmgr.Resolve("/home/user/docs/app.log")
+		_, err := svc.StageFiles(filePath, false)
+		if err == nil {
+			t.Fatal("expected error when staging ignored file")
+		}
+	})
+
+	t.Run("directory staging excludes ignored files", func(t *testing.T) {
+		t.Parallel()
+		svc, fsmgr := setup(t)
+		fsmgr.SetIgnorePatterns([]string{"*.log"})
+
+		fsmgr.AddDirectory("/home/user/docs")
+		fsmgr.AddFile("/home/user/docs/readme.txt", []byte("hello"))
+		fsmgr.AddFile("/home/user/docs/app.log", []byte("log data"))
+		fsmgr.AddFile("/home/user/docs/error.log", []byte("errors"))
+
+		dirPath, _ := fsmgr.Resolve("/home/user/docs")
+		svc.AddDirectory(dirPath)
+
+		count, err := svc.StageFiles(dirPath, false)
+		if err != nil {
+			t.Fatalf("StageFiles() error = %v", err)
+		}
+		if count != 1 {
+			t.Errorf("StageFiles() count = %d, want 1 (only readme.txt)", count)
+		}
+	})
+
+	t.Run("non-ignored file stages successfully with ignore patterns set", func(t *testing.T) {
+		t.Parallel()
+		svc, fsmgr := setup(t)
+		fsmgr.SetIgnorePatterns([]string{"*.log"})
+
+		fsmgr.AddDirectory("/home/user/docs")
+		fsmgr.AddFile("/home/user/docs/readme.txt", []byte("hello"))
+
+		dirPath, _ := fsmgr.Resolve("/home/user/docs")
+		svc.AddDirectory(dirPath)
+
+		filePath, _ := fsmgr.Resolve("/home/user/docs/readme.txt")
+		count, err := svc.StageFiles(filePath, false)
+		if err != nil {
+			t.Fatalf("StageFiles() error = %v", err)
+		}
+		if count != 1 {
+			t.Errorf("StageFiles() count = %d, want 1", count)
+		}
+	})
 }
