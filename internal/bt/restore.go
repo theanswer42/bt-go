@@ -15,6 +15,8 @@ import (
 // Otherwise, absPath is treated as a file path and the specified (or current) version is restored.
 // Returns the list of output file paths written.
 func (s *BTService) Restore(absPath string, checksum string) ([]string, error) {
+	s.logger.Info("restore started", "path", absPath)
+
 	// Check if absPath matches a tracked directory exactly.
 	dir, err := s.database.FindDirectoryByPath(absPath)
 	if err != nil {
@@ -162,6 +164,7 @@ func (s *BTService) restoreOneFile(dir *sqlc.Directory, relativePath string, sna
 		return "", fmt.Errorf("setting file times: %w", err)
 	}
 
+	s.logger.Info("file restored", "path", outPath)
 	return outPath, nil
 }
 

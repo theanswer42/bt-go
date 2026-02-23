@@ -17,6 +17,8 @@ type FileHistoryEntry struct {
 
 // GetFileHistory returns the backup history for a file, newest first.
 func (s *BTService) GetFileHistory(path *Path) ([]*FileHistoryEntry, error) {
+	s.logger.Debug("fetching file history", "path", path.String())
+
 	if path.IsDir() {
 		return nil, fmt.Errorf("path is a directory, not a file: %s", path.String())
 	}

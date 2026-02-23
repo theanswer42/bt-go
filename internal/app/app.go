@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"bt-go/internal/bt"
 	"bt-go/internal/config"
-	"bt-go/internal/database/sqlc"
 	"bt-go/internal/database"
+	"bt-go/internal/database/sqlc"
 	"bt-go/internal/fs"
 	"bt-go/internal/staging"
 	"bt-go/internal/vault"
@@ -25,6 +26,7 @@ type BTApp struct {
 	fsmgr   bt.FilesystemManager
 	service *bt.BTService
 	op      *BackupOperation
+	logFile *os.File
 }
 
 // NewBTApp creates a fully wired BTApp from the given config.
@@ -74,7 +76,14 @@ func NewBTApp(cfg *config.Config, operation string) (*BTApp, error) {
 		return nil, fmt.Errorf("local database is behind remote (local=%d, remote=%d): restore from vault or re-initialize", localMax, remoteVersion)
 	}
 
-	svc := bt.NewBTService(db, sa, v, fsmgr)
+	opID := time.Now().UTC().Format("20060102T150405Z")
+	logger, logFile, err := newLogger(cfg.LogDir, opID)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("creating logger: %w", err)
+	}
+
+	svc := bt.NewBTService(db, sa, v, fsmgr, &slogAdapter{l: logger})
 	op := NewBackupOperation(operation, "")
 
 	return &BTApp{
@@ -85,6 +94,7 @@ func NewBTApp(cfg *config.Config, operation string) (*BTApp, error) {
 		fsmgr:   fsmgr,
 		service: svc,
 		op:      op,
+		logFile: logFile,
 	}, nil
 }
 
@@ -228,6 +238,10 @@ func (a *BTApp) Close() error {
 		if err := a.db.Close(); err != nil {
 			firstErr = fmt.Errorf("closing database: %w", err)
 		}
+	}
+
+	if a.logFile != nil {
+		a.logFile.Close()
 	}
 
 	return firstErr

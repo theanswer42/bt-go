@@ -18,17 +18,19 @@ type BTService struct {
 	stagingArea StagingArea
 	vault       Vault
 	fsmgr       FilesystemManager
+	logger      Logger
 }
 
 // NewBTService creates a new BTService with the provided dependencies.
 // Currently only a single vault is supported; multiple vaults require additional
 // implementation work (content seeking, transaction handling across vaults).
-func NewBTService(database Database, stagingArea StagingArea, vault Vault, fsmgr FilesystemManager) *BTService {
+func NewBTService(database Database, stagingArea StagingArea, vault Vault, fsmgr FilesystemManager, logger Logger) *BTService {
 	return &BTService{
 		database:    database,
 		stagingArea: stagingArea,
 		vault:       vault,
 		fsmgr:       fsmgr,
+		logger:      logger,
 	}
 }
 
@@ -56,6 +58,7 @@ func (s *BTService) AddDirectory(path *Path) error {
 		return fmt.Errorf("creating directory: %w", err)
 	}
 
+	s.logger.Info("directory tracked", "path", path.String())
 	return nil
 }
 
@@ -129,6 +132,7 @@ func (s *BTService) stageOneFile(path *Path) error {
 		return fmt.Errorf("staging file: %w", err)
 	}
 
+	s.logger.Debug("file staged", "path", path.String())
 	return nil
 }
 
@@ -158,6 +162,7 @@ func (s *BTService) BackupAll() (int, error) {
 		count++
 	}
 
+	s.logger.Info("backup complete", "count", count)
 	return count, nil
 }
 
@@ -182,6 +187,8 @@ func (s *BTService) backupFile(content io.Reader, snapshot sqlc.FileSnapshot, di
 		if err := s.vault.PutContent(checksum, content, snapshot.Size); err != nil {
 			return fmt.Errorf("uploading to vault: %w", err)
 		}
+	} else {
+		s.logger.Debug("content deduplicated", "checksum", checksum)
 	}
 
 	// Atomically: find/create file, create content record (if needed),
@@ -192,5 +199,6 @@ func (s *BTService) backupFile(content io.Reader, snapshot sqlc.FileSnapshot, di
 		return fmt.Errorf("recording backup in database: %w", err)
 	}
 
+	s.logger.Info("file backed up", "path", relativePath)
 	return nil
 }

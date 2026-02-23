@@ -6,6 +6,8 @@ logs
  - logs for everything to local
  - operation logs in table
 
+tests
+
 
 backing up the same file twice - if the previous "stage" was less the
 X minutes, remove the old operation and add new. This should be

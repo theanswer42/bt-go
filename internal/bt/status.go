@@ -18,6 +18,8 @@ type FileStatus struct {
 // GetStatus returns the backup status of files under the given path.
 // If recursive is true, files in subdirectories are included.
 func (s *BTService) GetStatus(path *Path, recursive bool) ([]*FileStatus, error) {
+	s.logger.Debug("computing status", "path", path.String())
+
 	if !path.IsDir() {
 		return nil, fmt.Errorf("path is not a directory: %s", path.String())
 	}

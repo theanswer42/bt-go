@@ -14,7 +14,7 @@ func TestBTService_BackupAll(t *testing.T) {
 		staging := testutil.NewTestStagingArea(fsmgr)
 		vault := testutil.NewTestVault()
 
-		svc := bt.NewBTService(db, staging, vault, fsmgr)
+		svc := bt.NewBTService(db, staging, vault, fsmgr, bt.NewNopLogger())
 
 		count, err := svc.BackupAll()
 		if err != nil {
@@ -35,7 +35,7 @@ func TestBTService_BackupAll(t *testing.T) {
 		fsmgr.AddDirectory("/home/user/docs")
 		fsmgr.AddFile("/home/user/docs/file.txt", []byte("hello world"))
 
-		svc := bt.NewBTService(db, staging, vault, fsmgr)
+		svc := bt.NewBTService(db, staging, vault, fsmgr, bt.NewNopLogger())
 
 		// Add directory
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
@@ -83,7 +83,7 @@ func TestBTService_BackupAll(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/file2.txt", []byte("content 2"))
 		fsmgr.AddFile("/home/user/docs/file3.txt", []byte("content 3"))
 
-		svc := bt.NewBTService(db, staging, vault, fsmgr)
+		svc := bt.NewBTService(db, staging, vault, fsmgr, bt.NewNopLogger())
 
 		// Add directory
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
@@ -125,7 +125,7 @@ func TestBTService_BackupAll(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/file1.txt", content)
 		fsmgr.AddFile("/home/user/docs/file2.txt", content)
 
-		svc := bt.NewBTService(db, staging, vault, fsmgr)
+		svc := bt.NewBTService(db, staging, vault, fsmgr, bt.NewNopLogger())
 
 		// Add directory and stage files
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
@@ -164,7 +164,7 @@ func TestBTService_BackupAll(t *testing.T) {
 		fsmgr.AddDirectory("/home/user/docs")
 		fsmgr.AddFile("/home/user/docs/file.txt", content)
 
-		svc := bt.NewBTService(db, staging, vault, fsmgr)
+		svc := bt.NewBTService(db, staging, vault, fsmgr, bt.NewNopLogger())
 
 		// Add directory
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")

@@ -13,7 +13,7 @@ func TestBTService_AddDirectory(t *testing.T) {
 		fsmgr := testutil.NewMockFilesystemManager()
 		fsmgr.AddDirectory("/home/user/docs")
 
-		svc := bt.NewBTService(db, nil, nil, fsmgr)
+		svc := bt.NewBTService(db, nil, nil, fsmgr, bt.NewNopLogger())
 
 		path, _ := fsmgr.Resolve("/home/user/docs")
 		err := svc.AddDirectory(path)
@@ -36,7 +36,7 @@ func TestBTService_AddDirectory(t *testing.T) {
 		fsmgr := testutil.NewMockFilesystemManager()
 		fsmgr.AddFile("/home/user/file.txt", []byte("content"))
 
-		svc := bt.NewBTService(db, nil, nil, fsmgr)
+		svc := bt.NewBTService(db, nil, nil, fsmgr, bt.NewNopLogger())
 
 		path, _ := fsmgr.Resolve("/home/user/file.txt")
 		err := svc.AddDirectory(path)
@@ -50,7 +50,7 @@ func TestBTService_AddDirectory(t *testing.T) {
 		fsmgr := testutil.NewMockFilesystemManager()
 		fsmgr.AddDirectory("/home/user/docs")
 
-		svc := bt.NewBTService(db, nil, nil, fsmgr)
+		svc := bt.NewBTService(db, nil, nil, fsmgr, bt.NewNopLogger())
 
 		path, _ := fsmgr.Resolve("/home/user/docs")
 
@@ -72,7 +72,7 @@ func TestBTService_StageFiles(t *testing.T) {
 		db := testutil.NewTestDatabase(t)
 		fsmgr := testutil.NewMockFilesystemManager()
 		staging := testutil.NewTestStagingArea(fsmgr)
-		svc := bt.NewBTService(db, staging, nil, fsmgr)
+		svc := bt.NewBTService(db, staging, nil, fsmgr, bt.NewNopLogger())
 		return svc, fsmgr
 	}
 
