@@ -1,34 +1,49 @@
-## Tests
+# TODO Items, in order of importance
+## Full test with FSVault
+Build a suite of sorts of manual integration tests.
 
-## Features
+## S3Vault
 
-logs
- - operation logs in table
+## Full test with S3Vault
 
-tests
+## bt config init
 
+## Encryption
+Enable encryption at the directory level. If enabled, everything in
+that directory will be encrypted in the vault.
 
-backing up the same file twice - if the previous "stage" was less the
+Before we do this, we'll need a general investigation into how to
+implement encryption in a "safe" way (not just safe as in secure, but
+also safe as in, I should not lose my entire backup because I forgot
+something).
+
+## Daemon design
+Let's create a design for how to implement the bt-daemon. Include:
+- proper signal handling
+- log file rotation
+- debian user level service setup
+
+## CD - ie, build installable binary
+
+## Save operation logs in the operation
+It might be handy to save operation logs in a text field in the
+operations table.
+
+## backing up the same file multiple times
+When staging a file, what do we do if this file is already staged?
+What about if it was very recently backed up?
+This probably needs separate consideration for if running manually or
+if being done by a daemon. if the previous "stage" was less the
 X minutes, remove the old operation and add new. This should be
 configurable as `daemon.file_change_threshold`
 Note: this should only be enforced for files being staged by the
 daemon. manual call with with `bt add x` should not enforce this.
 
-
-
-
-
-
-encryption?
-
-## Infra
-for sqlite
+## SQLite configuration
 - enable WAL mode
+
+## Protect the SQLite database
 - use process co-ordination with a lock file
-
-pre-commit format and lint check
-
-github actions to run tests, build
 
 ## Code review
 - FindOrCreateFile (sqlite.go) has a check-then-insert without a
