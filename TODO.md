@@ -3,7 +3,6 @@
 ## Features
 
 logs
- - logs for everything to local
  - operation logs in table
 
 tests

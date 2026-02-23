@@ -4,11 +4,8 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"time"
 
 	"bt-go/internal/database/sqlc"
-
-	"github.com/google/uuid"
 )
 
 // BTService is the orchestration layer that coordinates across all components
@@ -19,18 +16,22 @@ type BTService struct {
 	vault       Vault
 	fsmgr       FilesystemManager
 	logger      Logger
+	clock       Clock
+	idgen       IDGenerator
 }
 
 // NewBTService creates a new BTService with the provided dependencies.
 // Currently only a single vault is supported; multiple vaults require additional
 // implementation work (content seeking, transaction handling across vaults).
-func NewBTService(database Database, stagingArea StagingArea, vault Vault, fsmgr FilesystemManager, logger Logger) *BTService {
+func NewBTService(database Database, stagingArea StagingArea, vault Vault, fsmgr FilesystemManager, logger Logger, clock Clock, idgen IDGenerator) *BTService {
 	return &BTService{
 		database:    database,
 		stagingArea: stagingArea,
 		vault:       vault,
 		fsmgr:       fsmgr,
 		logger:      logger,
+		clock:       clock,
+		idgen:       idgen,
 	}
 }
 
@@ -193,8 +194,8 @@ func (s *BTService) backupFile(content io.Reader, snapshot sqlc.FileSnapshot, di
 
 	// Atomically: find/create file, create content record (if needed),
 	// compare against current snapshot, and create a new one if anything changed.
-	snapshot.ID = uuid.New().String()
-	snapshot.CreatedAt = time.Now()
+	snapshot.ID = s.idgen.New()
+	snapshot.CreatedAt = s.clock.Now()
 	if err := s.database.CreateFileSnapshotAndContent(directoryID, relativePath, &snapshot); err != nil {
 		return fmt.Errorf("recording backup in database: %w", err)
 	}

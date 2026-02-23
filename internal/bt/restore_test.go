@@ -19,7 +19,7 @@ func setupRestore(t *testing.T) (*bt.BTService, *testutil.MockFilesystemManager,
 	fsmgr := testutil.NewMockFilesystemManager()
 	staging := testutil.NewTestStagingArea(fsmgr)
 	vault := testutil.NewTestVault()
-	svc := bt.NewBTService(db, staging, vault, fsmgr, bt.NewNopLogger())
+	svc := bt.NewBTService(db, staging, vault, fsmgr, bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
 
 	dir := t.TempDir()
 	return svc, fsmgr, dir

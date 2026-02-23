@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 func newTestDB(t *testing.T) *SQLiteDatabase {
 	t.Helper()
 
-	db, err := NewSQLiteDatabase(":memory:")
+	db, err := NewSQLiteDatabase(":memory:", nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create database: %v", err)
 	}
@@ -432,6 +433,225 @@ func TestSQLiteDatabase_FindOrCreateFile(t *testing.T) {
 		}
 		if file2.ID != file1.ID {
 			t.Errorf("expected same file ID, got %s and %s", file1.ID, file2.ID)
+		}
+	})
+}
+
+func TestSQLiteDatabase_CreateFileSnapshotAndContent(t *testing.T) {
+	makeSnapshot := func(contentID string) *sqlc.FileSnapshot {
+		return &sqlc.FileSnapshot{
+			ID:          uuid.New().String(),
+			ContentID:   contentID,
+			CreatedAt:   time.Now(),
+			Size:        42,
+			Permissions: 0644,
+			Uid:         1000,
+			Gid:         1000,
+			AccessedAt:  time.Now(),
+			ModifiedAt:  time.Now(),
+			ChangedAt:   time.Now(),
+		}
+	}
+
+	t.Run("creates file, content, and snapshot for new file", func(t *testing.T) {
+		db := newTestDB(t)
+		dir, _ := db.CreateDirectory("/home/user/docs")
+
+		snap := makeSnapshot("abc123checksum")
+		err := db.CreateFileSnapshotAndContent(dir.ID, "newfile.txt", snap)
+		if err != nil {
+			t.Fatalf("CreateFileSnapshotAndContent() error = %v", err)
+		}
+
+		// Verify file was created
+		file, err := db.FindFileByPath(dir, "newfile.txt")
+		if err != nil {
+			t.Fatalf("FindFileByPath() error = %v", err)
+		}
+		if file == nil {
+			t.Fatal("file was not created")
+		}
+		if !file.CurrentSnapshotID.Valid {
+			t.Error("file.CurrentSnapshotID should be set")
+		}
+
+		// Verify content was created
+		content, err := db.FindContentByChecksum("abc123checksum")
+		if err != nil {
+			t.Fatalf("FindContentByChecksum() error = %v", err)
+		}
+		if content == nil {
+			t.Error("content was not created")
+		}
+	})
+
+	t.Run("skips when snapshot unchanged", func(t *testing.T) {
+		db := newTestDB(t)
+		dir, _ := db.CreateDirectory("/home/user/docs")
+
+		snap1 := makeSnapshot("checksum1")
+		if err := db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap1); err != nil {
+			t.Fatalf("first call error = %v", err)
+		}
+
+		file, _ := db.FindFileByPath(dir, "file.txt")
+		firstSnapshotID := file.CurrentSnapshotID.String
+
+		// Call again with identical metadata
+		snap2 := makeSnapshot("checksum1")
+		snap2.Size = snap1.Size
+		snap2.Permissions = snap1.Permissions
+		snap2.Uid = snap1.Uid
+		snap2.Gid = snap1.Gid
+		snap2.AccessedAt = snap1.AccessedAt
+		snap2.ModifiedAt = snap1.ModifiedAt
+		snap2.ChangedAt = snap1.ChangedAt
+		snap2.BornAt = snap1.BornAt
+
+		if err := db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap2); err != nil {
+			t.Fatalf("second call error = %v", err)
+		}
+
+		// Current snapshot should not have changed
+		file, _ = db.FindFileByPath(dir, "file.txt")
+		if file.CurrentSnapshotID.String != firstSnapshotID {
+			t.Errorf("snapshot pointer changed: %s -> %s", firstSnapshotID, file.CurrentSnapshotID.String)
+		}
+	})
+
+	t.Run("creates new snapshot when content changes", func(t *testing.T) {
+		db := newTestDB(t)
+		dir, _ := db.CreateDirectory("/home/user/docs")
+
+		snap1 := makeSnapshot("checksum-v1")
+		db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap1)
+
+		file, _ := db.FindFileByPath(dir, "file.txt")
+		firstSnapshotID := file.CurrentSnapshotID.String
+
+		snap2 := makeSnapshot("checksum-v2")
+		db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap2)
+
+		file, _ = db.FindFileByPath(dir, "file.txt")
+		if file.CurrentSnapshotID.String == firstSnapshotID {
+			t.Error("snapshot pointer should have changed for new content")
+		}
+	})
+}
+
+func TestSQLiteDatabase_BackupOperations(t *testing.T) {
+	t.Run("create and list operations", func(t *testing.T) {
+		db := newTestDB(t)
+
+		op1, err := db.CreateBackupOperation("AddDirectory", "/docs")
+		if err != nil {
+			t.Fatalf("CreateBackupOperation() error = %v", err)
+		}
+		if op1.ID == 0 {
+			t.Error("operation ID should be non-zero")
+		}
+		if op1.Operation != "AddDirectory" {
+			t.Errorf("Operation = %q, want %q", op1.Operation, "AddDirectory")
+		}
+
+		op2, err := db.CreateBackupOperation("BackupAll", "")
+		if err != nil {
+			t.Fatalf("CreateBackupOperation() error = %v", err)
+		}
+
+		ops, err := db.ListBackupOperations(10)
+		if err != nil {
+			t.Fatalf("ListBackupOperations() error = %v", err)
+		}
+		if len(ops) != 2 {
+			t.Fatalf("got %d operations, want 2", len(ops))
+		}
+
+		// Newest first
+		if ops[0].ID != op2.ID {
+			t.Errorf("expected newest first: got ID %d, want %d", ops[0].ID, op2.ID)
+		}
+	})
+
+	t.Run("finish operation sets status and time", func(t *testing.T) {
+		db := newTestDB(t)
+
+		op, _ := db.CreateBackupOperation("BackupAll", "")
+		err := db.FinishBackupOperation(op.ID, "success")
+		if err != nil {
+			t.Fatalf("FinishBackupOperation() error = %v", err)
+		}
+
+		ops, _ := db.ListBackupOperations(1)
+		if ops[0].Status != "success" {
+			t.Errorf("Status = %q, want %q", ops[0].Status, "success")
+		}
+		if !ops[0].FinishedAt.Valid {
+			t.Error("FinishedAt should be set")
+		}
+	})
+
+	t.Run("max operation ID", func(t *testing.T) {
+		db := newTestDB(t)
+
+		// Empty DB should return 0
+		maxID, err := db.MaxBackupOperationID()
+		if err != nil {
+			t.Fatalf("MaxBackupOperationID() error = %v", err)
+		}
+		if maxID != 0 {
+			t.Errorf("MaxBackupOperationID() = %d, want 0", maxID)
+		}
+
+		db.CreateBackupOperation("op1", "")
+		op2, _ := db.CreateBackupOperation("op2", "")
+
+		maxID, err = db.MaxBackupOperationID()
+		if err != nil {
+			t.Fatalf("MaxBackupOperationID() error = %v", err)
+		}
+		if maxID != op2.ID {
+			t.Errorf("MaxBackupOperationID() = %d, want %d", maxID, op2.ID)
+		}
+	})
+}
+
+func TestSQLiteDatabase_BackupTo(t *testing.T) {
+	db := newTestDB(t)
+	db.CreateDirectory("/home/user/docs")
+
+	destPath := filepath.Join(t.TempDir(), "backup.db")
+	if err := db.BackupTo(destPath); err != nil {
+		t.Fatalf("BackupTo() error = %v", err)
+	}
+
+	// Open the backup and verify it has the data
+	backup, err := NewSQLiteDatabase(destPath, nil, nil)
+	if err != nil {
+		t.Fatalf("opening backup: %v", err)
+	}
+	defer backup.Close()
+
+	dir, err := backup.FindDirectoryByPath("/home/user/docs")
+	if err != nil {
+		t.Fatalf("FindDirectoryByPath() error = %v", err)
+	}
+	if dir == nil {
+		t.Error("backup does not contain the directory")
+	}
+}
+
+func TestSQLiteDatabase_CheckMigrations(t *testing.T) {
+	t.Run("fails on DB without migrations applied", func(t *testing.T) {
+		db, err := NewSQLiteDatabase(":memory:", nil, nil)
+		if err != nil {
+			t.Fatalf("NewSQLiteDatabase() error = %v", err)
+		}
+		defer db.Close()
+
+		// DB has no schema at all — should fail
+		if err := db.CheckMigrations(); err == nil {
+			t.Error("CheckMigrations() expected error for missing schema")
 		}
 	})
 }

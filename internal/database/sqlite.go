@@ -22,30 +22,51 @@ type SQLiteDatabase struct {
 	db      *sql.DB
 	queries *sqlc.Queries
 	path    string
+	nowFn   func() time.Time
+	newIDFn func() string
 }
 
 // NewSQLiteDatabase creates a new SQLite database connection.
 // path can be a file path or ":memory:" for in-memory database.
-func NewSQLiteDatabase(path string) (*SQLiteDatabase, error) {
+// nowFn and newIDFn provide time and ID generation; pass nil to use defaults.
+func NewSQLiteDatabase(path string, nowFn func() time.Time, newIDFn func() string) (*SQLiteDatabase, error) {
 	db, err := OpenConnection(path)
 	if err != nil {
 		return nil, err
+	}
+
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	if newIDFn == nil {
+		newIDFn = func() string { return uuid.New().String() }
 	}
 
 	return &SQLiteDatabase{
 		db:      db,
 		queries: sqlc.New(db),
 		path:    path,
+		nowFn:   nowFn,
+		newIDFn: newIDFn,
 	}, nil
 }
 
 // NewSQLiteDatabaseFromDB wraps an existing database connection.
 // The caller is responsible for ensuring the connection is properly configured.
-func NewSQLiteDatabaseFromDB(db *sql.DB) *SQLiteDatabase {
+// nowFn and newIDFn provide time and ID generation; pass nil to use defaults.
+func NewSQLiteDatabaseFromDB(db *sql.DB, nowFn func() time.Time, newIDFn func() string) *SQLiteDatabase {
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	if newIDFn == nil {
+		newIDFn = func() string { return uuid.New().String() }
+	}
 	return &SQLiteDatabase{
 		db:      db,
 		queries: sqlc.New(db),
 		path:    "",
+		nowFn:   nowFn,
+		newIDFn: newIDFn,
 	}
 }
 
@@ -141,9 +162,9 @@ func (s *SQLiteDatabase) CreateDirectory(path string) (*sqlc.Directory, error) {
 
 	// Create the new directory
 	newDir, err := qtx.InsertDirectory(ctx, sqlc.InsertDirectoryParams{
-		ID:        uuid.New().String(),
+		ID:        s.newIDFn(),
 		Path:      path,
-		CreatedAt: time.Now(),
+		CreatedAt: s.nowFn(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("inserting directory: %w", err)
@@ -255,7 +276,7 @@ func (s *SQLiteDatabase) FindOrCreateFile(directory *sqlc.Directory, relativePat
 
 	// Create new file
 	newFile, err := s.queries.InsertFile(context.Background(), sqlc.InsertFileParams{
-		ID:                uuid.New().String(),
+		ID:                s.newIDFn(),
 		Name:              relativePath,
 		DirectoryID:       directory.ID,
 		CurrentSnapshotID: sql.NullString{}, // No snapshot yet
@@ -352,7 +373,7 @@ func (s *SQLiteDatabase) CreateFileSnapshotAndContent(directoryID string, relati
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		file, err = qtx.InsertFile(ctx, sqlc.InsertFileParams{
-			ID:                uuid.New().String(),
+			ID:                s.newIDFn(),
 			Name:              relativePath,
 			DirectoryID:       directoryID,
 			CurrentSnapshotID: sql.NullString{},
@@ -370,7 +391,7 @@ func (s *SQLiteDatabase) CreateFileSnapshotAndContent(directoryID string, relati
 	if errors.Is(err, sql.ErrNoRows) {
 		_, err = qtx.InsertContent(ctx, sqlc.InsertContentParams{
 			ID:        snapshot.ContentID,
-			CreatedAt: time.Now(),
+			CreatedAt: s.nowFn(),
 		})
 		if err != nil {
 			return fmt.Errorf("creating content: %w", err)
@@ -447,7 +468,7 @@ func snapshotsEqual(a, b *sqlc.FileSnapshot) bool {
 
 func (s *SQLiteDatabase) CreateBackupOperation(operation string, parameters string) (*sqlc.BackupOperation, error) {
 	op, err := s.queries.InsertBackupOperation(context.Background(), sqlc.InsertBackupOperationParams{
-		StartedAt:  time.Now(),
+		StartedAt:  s.nowFn(),
 		Operation:  operation,
 		Parameters: parameters,
 	})
@@ -459,7 +480,7 @@ func (s *SQLiteDatabase) CreateBackupOperation(operation string, parameters stri
 
 func (s *SQLiteDatabase) FinishBackupOperation(id int64, status string) error {
 	err := s.queries.UpdateBackupOperationFinished(context.Background(), sqlc.UpdateBackupOperationFinishedParams{
-		FinishedAt: sql.NullTime{Time: time.Now(), Valid: true},
+		FinishedAt: sql.NullTime{Time: s.nowFn(), Valid: true},
 		Status:     status,
 		ID:         id,
 	})
@@ -495,7 +516,7 @@ func (s *SQLiteDatabase) MaxBackupOperationID() (int64, error) {
 func (s *SQLiteDatabase) CreateContent(checksum string) (*sqlc.Content, error) {
 	content, err := s.queries.InsertContent(context.Background(), sqlc.InsertContentParams{
 		ID:        checksum,
-		CreatedAt: time.Now(),
+		CreatedAt: s.nowFn(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating content: %w", err)

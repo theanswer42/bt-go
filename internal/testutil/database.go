@@ -22,7 +22,7 @@ func NewTestDatabase(t *testing.T) bt.Database {
 		t.Fatalf("failed to apply schema: %v", err)
 	}
 
-	db := database.NewSQLiteDatabaseFromDB(sqlDB)
+	db := database.NewSQLiteDatabaseFromDB(sqlDB, nil, nil)
 
 	t.Cleanup(func() {
 		db.Close()

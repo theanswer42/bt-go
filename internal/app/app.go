@@ -83,7 +83,7 @@ func NewBTApp(cfg *config.Config, operation string) (*BTApp, error) {
 		return nil, fmt.Errorf("creating logger: %w", err)
 	}
 
-	svc := bt.NewBTService(db, sa, v, fsmgr, &slogAdapter{l: logger})
+	svc := bt.NewBTService(db, sa, v, fsmgr, &slogAdapter{l: logger}, bt.RealClock{}, bt.UUIDGenerator{})
 	op := NewBackupOperation(operation, "")
 
 	return &BTApp{

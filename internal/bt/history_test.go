@@ -14,7 +14,7 @@ func TestBTService_GetHistory(t *testing.T) {
 		fsmgr := testutil.NewMockFilesystemManager()
 		staging := testutil.NewTestStagingArea(fsmgr)
 		vault := testutil.NewTestVault()
-		svc := bt.NewBTService(db, staging, vault, fsmgr, bt.NewNopLogger())
+		svc := bt.NewBTService(db, staging, vault, fsmgr, bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
 		return svc, db
 	}
 
