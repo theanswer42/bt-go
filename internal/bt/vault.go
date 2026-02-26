@@ -14,17 +14,18 @@ type Vault interface {
 	// GetContent retrieves content by checksum and writes it to w.
 	GetContent(checksum string, w io.Writer) error
 
-	// PutMetadata stores metadata (typically a SQLite database) for a specific host.
+	// PutMetadata stores a named metadata item for a specific host.
 	// size is the number of bytes that will be read from r.
-	// version is the latest backup operation ID, stored alongside the metadata.
-	PutMetadata(hostID string, r io.Reader, size int64, version int64) error
+	// version is stored alongside the metadata for consistency checks.
+	// Known names: "db" (SQLite database), "public_key", "private_key".
+	PutMetadata(hostID string, name string, r io.Reader, size int64, version int64) error
 
-	// GetMetadata retrieves metadata for a specific host and writes it to w.
-	GetMetadata(hostID string, w io.Writer) error
+	// GetMetadata retrieves a named metadata item for a specific host and writes it to w.
+	GetMetadata(hostID string, name string, w io.Writer) error
 
-	// GetMetadataVersion returns the metadata version for a host.
-	// Returns 0 if no metadata has been stored for this host.
-	GetMetadataVersion(hostID string) (int64, error)
+	// GetMetadataVersion returns the metadata version for a named item on a host.
+	// Returns 0 if no metadata has been stored for this host/name.
+	GetMetadataVersion(hostID string, name string) (int64, error)
 
 	// ValidateSetup verifies that the vault is accessible and properly configured.
 	ValidateSetup() error

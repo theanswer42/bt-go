@@ -59,7 +59,7 @@ func NewBTApp(cfg *config.Config, operation string) (*BTApp, error) {
 	}
 
 	// Check local DB version against remote vault version.
-	remoteVersion, err := v.GetMetadataVersion(cfg.HostID)
+	remoteVersion, err := v.GetMetadataVersion(cfg.HostID, "db")
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("checking remote metadata version: %w", err)
@@ -260,7 +260,7 @@ func (a *BTApp) uploadMetadata(path string, version int64) error {
 		return fmt.Errorf("stat db backup: %w", err)
 	}
 
-	if err := a.vault.PutMetadata(a.cfg.HostID, f, info.Size(), version); err != nil {
+	if err := a.vault.PutMetadata(a.cfg.HostID, "db", f, info.Size(), version); err != nil {
 		return fmt.Errorf("uploading metadata to vault: %w", err)
 	}
 

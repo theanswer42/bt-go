@@ -15,8 +15,8 @@ import (
 type MemoryVault struct {
 	name            string
 	content         map[string][]byte // checksum -> content
-	metadata        map[string][]byte // hostID -> metadata
-	metadataVersion map[string]int64  // hostID -> version
+	metadata        map[string][]byte // "hostID/name" -> metadata
+	metadataVersion map[string]int64  // "hostID/name" -> version
 	mu              sync.RWMutex
 }
 
@@ -28,6 +28,11 @@ func NewMemoryVault(name string) *MemoryVault {
 		metadata:        make(map[string][]byte),
 		metadataVersion: make(map[string]int64),
 	}
+}
+
+// metadataKey returns the map key for a host/name pair.
+func metadataKey(hostID, name string) string {
+	return hostID + "/" + name
 }
 
 // PutContent stores content identified by its checksum.
@@ -66,8 +71,8 @@ func (m *MemoryVault) GetContent(checksum string, w io.Writer) error {
 	return nil
 }
 
-// PutMetadata stores metadata for a specific host.
-func (m *MemoryVault) PutMetadata(hostID string, r io.Reader, size int64, version int64) error {
+// PutMetadata stores a named metadata item for a specific host.
+func (m *MemoryVault) PutMetadata(hostID string, name string, r io.Reader, size int64, version int64) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return fmt.Errorf("failed to read metadata: %w", err)
@@ -80,28 +85,30 @@ func (m *MemoryVault) PutMetadata(hostID string, r io.Reader, size int64, versio
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.metadata[hostID] = data
-	m.metadataVersion[hostID] = version
+	key := metadataKey(hostID, name)
+	m.metadata[key] = data
+	m.metadataVersion[key] = version
 	return nil
 }
 
-// GetMetadataVersion returns the metadata version for a host.
-// Returns 0 if no metadata has been stored for this host.
-func (m *MemoryVault) GetMetadataVersion(hostID string) (int64, error) {
+// GetMetadataVersion returns the metadata version for a named item on a host.
+// Returns 0 if no metadata has been stored for this host/name.
+func (m *MemoryVault) GetMetadataVersion(hostID string, name string) (int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	return m.metadataVersion[hostID], nil
+	return m.metadataVersion[metadataKey(hostID, name)], nil
 }
 
-// GetMetadata retrieves metadata for a specific host.
-func (m *MemoryVault) GetMetadata(hostID string, w io.Writer) error {
+// GetMetadata retrieves a named metadata item for a specific host.
+func (m *MemoryVault) GetMetadata(hostID string, name string, w io.Writer) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	data, ok := m.metadata[hostID]
+	key := metadataKey(hostID, name)
+	data, ok := m.metadata[key]
 	if !ok {
-		return fmt.Errorf("metadata not found for host: %s", hostID)
+		return fmt.Errorf("metadata %q not found for host: %s", name, hostID)
 	}
 
 	if _, err := io.Copy(w, bytes.NewReader(data)); err != nil {
