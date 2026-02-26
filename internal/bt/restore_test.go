@@ -19,7 +19,7 @@ func setupRestore(t *testing.T) (*bt.BTService, *testutil.MockFilesystemManager,
 	fsmgr := testutil.NewMockFilesystemManager()
 	staging := testutil.NewTestStagingArea(fsmgr)
 	vault := testutil.NewTestVault()
-	svc := bt.NewBTService(db, staging, vault, fsmgr, bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
+	svc := bt.NewBTService(db, staging, vault, fsmgr, testutil.NewTestEncryptor(), bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
 
 	dir := t.TempDir()
 	return svc, fsmgr, dir
@@ -38,7 +38,7 @@ func backupOneFile(t *testing.T, svc *bt.BTService, fsmgr *testutil.MockFilesyst
 	if err != nil {
 		t.Fatalf("resolve dir: %v", err)
 	}
-	if err := svc.AddDirectory(dirP); err != nil {
+	if err := svc.AddDirectory(dirP, false); err != nil {
 		t.Fatalf("add directory: %v", err)
 	}
 
@@ -142,7 +142,7 @@ func TestBTService_Restore(t *testing.T) {
 
 		fsmgr.AddDirectory(dir)
 		dirP, _ := fsmgr.Resolve(dir)
-		svc.AddDirectory(dirP)
+		svc.AddDirectory(dirP, false)
 
 		// File is tracked in dir but never backed up
 		_, err := svc.Restore(filepath.Join(dir, "missing.txt"), "")

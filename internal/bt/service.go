@@ -15,6 +15,7 @@ type BTService struct {
 	stagingArea StagingArea
 	vault       Vault
 	fsmgr       FilesystemManager
+	encryptor   Encryptor
 	logger      Logger
 	clock       Clock
 	idgen       IDGenerator
@@ -23,12 +24,13 @@ type BTService struct {
 // NewBTService creates a new BTService with the provided dependencies.
 // Currently only a single vault is supported; multiple vaults require additional
 // implementation work (content seeking, transaction handling across vaults).
-func NewBTService(database Database, stagingArea StagingArea, vault Vault, fsmgr FilesystemManager, logger Logger, clock Clock, idgen IDGenerator) *BTService {
+func NewBTService(database Database, stagingArea StagingArea, vault Vault, fsmgr FilesystemManager, encryptor Encryptor, logger Logger, clock Clock, idgen IDGenerator) *BTService {
 	return &BTService{
 		database:    database,
 		stagingArea: stagingArea,
 		vault:       vault,
 		fsmgr:       fsmgr,
+		encryptor:   encryptor,
 		logger:      logger,
 		clock:       clock,
 		idgen:       idgen,
@@ -38,7 +40,8 @@ func NewBTService(database Database, stagingArea StagingArea, vault Vault, fsmgr
 // AddDirectory registers a directory for tracking.
 // The path must point to a directory, not a file.
 // If the directory is already tracked, this is a no-op.
-func (s *BTService) AddDirectory(path *Path) error {
+// encrypted marks whether files in this directory should be encrypted on backup.
+func (s *BTService) AddDirectory(path *Path, encrypted bool) error {
 	if !path.IsDir() {
 		return fmt.Errorf("path is not a directory: %s", path.String())
 	}
@@ -54,7 +57,7 @@ func (s *BTService) AddDirectory(path *Path) error {
 	}
 
 	// Create the directory record
-	_, err = s.database.CreateDirectory(path.String())
+	_, err = s.database.CreateDirectory(path.String(), encrypted)
 	if err != nil {
 		return fmt.Errorf("creating directory: %w", err)
 	}

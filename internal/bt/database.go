@@ -17,7 +17,8 @@ type Database interface {
 
 	// CreateDirectory creates a new tracked directory.
 	// If there are existing child directories, moves their files and deletes them.
-	CreateDirectory(path string) (*sqlc.Directory, error)
+	// encrypted marks whether files in this directory should be encrypted on backup.
+	CreateDirectory(path string, encrypted bool) (*sqlc.Directory, error)
 
 	// FindDirectoriesByPathPrefix returns all directories whose path starts with the given prefix.
 	FindDirectoriesByPathPrefix(pathPrefix string) ([]*sqlc.Directory, error)

@@ -142,7 +142,7 @@ func (s *SQLiteDatabase) SearchDirectoryForPath(path string) (*sqlc.Directory, e
 	return bestMatch, nil
 }
 
-func (s *SQLiteDatabase) CreateDirectory(path string) (*sqlc.Directory, error) {
+func (s *SQLiteDatabase) CreateDirectory(path string, encrypted bool) (*sqlc.Directory, error) {
 	ctx := context.Background()
 
 	// Start transaction
@@ -161,11 +161,15 @@ func (s *SQLiteDatabase) CreateDirectory(path string) (*sqlc.Directory, error) {
 	}
 
 	// Create the new directory
+	var encryptedInt int64
+	if encrypted {
+		encryptedInt = 1
+	}
 	newDir, err := qtx.InsertDirectory(ctx, sqlc.InsertDirectoryParams{
 		ID:        s.newIDFn(),
 		Path:      path,
 		CreatedAt: s.nowFn(),
-		Encrypted: 0,
+		Encrypted: encryptedInt,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("inserting directory: %w", err)

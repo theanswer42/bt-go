@@ -16,7 +16,7 @@ func TestBTService_GetStatus(t *testing.T) {
 		fsmgr := testutil.NewMockFilesystemManager()
 		staging := testutil.NewTestStagingArea(fsmgr)
 		vault := testutil.NewTestVault()
-		svc := bt.NewBTService(db, staging, vault, fsmgr, bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
+		svc := bt.NewBTService(db, staging, vault, fsmgr, testutil.NewTestEncryptor(), bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
 		return svc, fsmgr, db, staging
 	}
 
@@ -52,7 +52,7 @@ func TestBTService_GetStatus(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/file.txt", []byte("content"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		if err := svc.AddDirectory(dirPath); err != nil {
+		if err := svc.AddDirectory(dirPath, false); err != nil {
 			t.Fatalf("AddDirectory() error = %v", err)
 		}
 
@@ -84,7 +84,7 @@ func TestBTService_GetStatus(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/file.txt", []byte("content"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		filePath, _ := fsmgr.Resolve("/home/user/docs/file.txt")
 		if _, err := svc.StageFiles(filePath, false); err != nil {
@@ -116,7 +116,7 @@ func TestBTService_GetStatus(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/file.txt", []byte("content"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		filePath, _ := fsmgr.Resolve("/home/user/docs/file.txt")
 		svc.StageFiles(filePath, false)
@@ -150,7 +150,7 @@ func TestBTService_GetStatus(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/file.txt", []byte("content"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		filePath, _ := fsmgr.Resolve("/home/user/docs/file.txt")
 		svc.StageFiles(filePath, false)
@@ -185,7 +185,7 @@ func TestBTService_GetStatus(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/sub/nested.txt", []byte("nested"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		statuses, err := svc.GetStatus(dirPath, false)
 		if err != nil {
@@ -209,7 +209,7 @@ func TestBTService_GetStatus(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/sub/nested.txt", []byte("nested"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		statuses, err := svc.GetStatus(dirPath, true)
 		if err != nil {
@@ -242,7 +242,7 @@ func TestBTService_GetStatus(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/sub/nested.txt", []byte("nested"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		subPath, _ := fsmgr.Resolve("/home/user/docs/sub")
 		statuses, err := svc.GetStatus(subPath, false)

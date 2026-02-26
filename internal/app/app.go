@@ -10,6 +10,7 @@ import (
 	"bt-go/internal/config"
 	"bt-go/internal/database"
 	"bt-go/internal/database/sqlc"
+	"bt-go/internal/encryption"
 	"bt-go/internal/fs"
 	"bt-go/internal/staging"
 	"bt-go/internal/vault"
@@ -19,14 +20,15 @@ import (
 // It constructs all dependencies from config, exposes high-level operations
 // that accept raw string paths, and manages the DB lifecycle on Close.
 type BTApp struct {
-	cfg     *config.Config
-	db      bt.Database
-	vault   bt.Vault
-	staging bt.StagingArea
-	fsmgr   bt.FilesystemManager
-	service *bt.BTService
-	op      *BackupOperation
-	logFile *os.File
+	cfg       *config.Config
+	db        bt.Database
+	vault     bt.Vault
+	staging   bt.StagingArea
+	fsmgr     bt.FilesystemManager
+	encryptor bt.Encryptor
+	service   *bt.BTService
+	op        *BackupOperation
+	logFile   *os.File
 }
 
 // NewBTApp creates a fully wired BTApp from the given config.
@@ -76,6 +78,12 @@ func NewBTApp(cfg *config.Config, operation string) (*BTApp, error) {
 		return nil, fmt.Errorf("local database is behind remote (local=%d, remote=%d): restore from vault or re-initialize", localMax, remoteVersion)
 	}
 
+	enc, err := encryption.NewEncryptorFromConfig(cfg.Encryption)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("creating encryptor: %w", err)
+	}
+
 	opID := time.Now().UTC().Format("20060102T150405Z")
 	logger, logFile, err := newLogger(cfg.LogDir, opID)
 	if err != nil {
@@ -83,18 +91,19 @@ func NewBTApp(cfg *config.Config, operation string) (*BTApp, error) {
 		return nil, fmt.Errorf("creating logger: %w", err)
 	}
 
-	svc := bt.NewBTService(db, sa, v, fsmgr, &slogAdapter{l: logger}, bt.RealClock{}, bt.UUIDGenerator{})
+	svc := bt.NewBTService(db, sa, v, fsmgr, enc, &slogAdapter{l: logger}, bt.RealClock{}, bt.UUIDGenerator{})
 	op := NewBackupOperation(operation, "")
 
 	return &BTApp{
-		cfg:     cfg,
-		db:      db,
-		vault:   v,
-		staging: sa,
-		fsmgr:   fsmgr,
-		service: svc,
-		op:      op,
-		logFile: logFile,
+		cfg:       cfg,
+		db:        db,
+		vault:     v,
+		staging:   sa,
+		fsmgr:     fsmgr,
+		encryptor: enc,
+		service:   svc,
+		op:        op,
+		logFile:   logFile,
 	}, nil
 }
 
@@ -113,7 +122,8 @@ func (a *BTApp) persistOperation() error {
 }
 
 // AddDirectory resolves the given path and registers it for tracking.
-func (a *BTApp) AddDirectory(rawPath string) error {
+// encrypted marks whether files in this directory should be encrypted on backup.
+func (a *BTApp) AddDirectory(rawPath string, encrypted bool) error {
 	if err := a.persistOperation(); err != nil {
 		return err
 	}
@@ -121,7 +131,7 @@ func (a *BTApp) AddDirectory(rawPath string) error {
 	if err != nil {
 		return fmt.Errorf("resolving path: %w", err)
 	}
-	return a.service.AddDirectory(p)
+	return a.service.AddDirectory(p, encrypted)
 }
 
 // StageFiles resolves the given path and stages file(s) for backup.

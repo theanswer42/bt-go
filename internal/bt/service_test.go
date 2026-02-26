@@ -13,10 +13,10 @@ func TestBTService_AddDirectory(t *testing.T) {
 		fsmgr := testutil.NewMockFilesystemManager()
 		fsmgr.AddDirectory("/home/user/docs")
 
-		svc := bt.NewBTService(db, nil, nil, fsmgr, bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
+		svc := bt.NewBTService(db, nil, nil, fsmgr, testutil.NewTestEncryptor(), bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
 
 		path, _ := fsmgr.Resolve("/home/user/docs")
-		err := svc.AddDirectory(path)
+		err := svc.AddDirectory(path, false)
 		if err != nil {
 			t.Fatalf("AddDirectory() error = %v", err)
 		}
@@ -36,10 +36,10 @@ func TestBTService_AddDirectory(t *testing.T) {
 		fsmgr := testutil.NewMockFilesystemManager()
 		fsmgr.AddFile("/home/user/file.txt", []byte("content"))
 
-		svc := bt.NewBTService(db, nil, nil, fsmgr, bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
+		svc := bt.NewBTService(db, nil, nil, fsmgr, testutil.NewTestEncryptor(), bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
 
 		path, _ := fsmgr.Resolve("/home/user/file.txt")
-		err := svc.AddDirectory(path)
+		err := svc.AddDirectory(path, false)
 		if err == nil {
 			t.Error("AddDirectory() expected error for non-directory path")
 		}
@@ -50,17 +50,17 @@ func TestBTService_AddDirectory(t *testing.T) {
 		fsmgr := testutil.NewMockFilesystemManager()
 		fsmgr.AddDirectory("/home/user/docs")
 
-		svc := bt.NewBTService(db, nil, nil, fsmgr, bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
+		svc := bt.NewBTService(db, nil, nil, fsmgr, testutil.NewTestEncryptor(), bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
 
 		path, _ := fsmgr.Resolve("/home/user/docs")
 
 		// Add directory first time
-		if err := svc.AddDirectory(path); err != nil {
+		if err := svc.AddDirectory(path, false); err != nil {
 			t.Fatalf("first AddDirectory() error = %v", err)
 		}
 
 		// Add directory second time - should succeed (idempotent)
-		if err := svc.AddDirectory(path); err != nil {
+		if err := svc.AddDirectory(path, false); err != nil {
 			t.Fatalf("second AddDirectory() error = %v", err)
 		}
 	})
@@ -72,7 +72,7 @@ func TestBTService_StageFiles(t *testing.T) {
 		db := testutil.NewTestDatabase(t)
 		fsmgr := testutil.NewMockFilesystemManager()
 		staging := testutil.NewTestStagingArea(fsmgr)
-		svc := bt.NewBTService(db, staging, nil, fsmgr, bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
+		svc := bt.NewBTService(db, staging, nil, fsmgr, testutil.NewTestEncryptor(), bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
 		return svc, fsmgr
 	}
 
@@ -84,7 +84,7 @@ func TestBTService_StageFiles(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/file.txt", []byte("content"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		filePath, _ := fsmgr.Resolve("/home/user/docs/file.txt")
 		count, err := svc.StageFiles(filePath, false)
@@ -106,7 +106,7 @@ func TestBTService_StageFiles(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/sub/c.txt", []byte("ccc"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		count, err := svc.StageFiles(dirPath, false)
 		if err != nil {
@@ -127,7 +127,7 @@ func TestBTService_StageFiles(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/sub/deep/c.txt", []byte("ccc"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		count, err := svc.StageFiles(dirPath, true)
 		if err != nil {
@@ -159,7 +159,7 @@ func TestBTService_StageFiles(t *testing.T) {
 		fsmgr.AddDirectory("/home/user/docs")
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		count, err := svc.StageFiles(dirPath, false)
 		if err != nil {
@@ -192,7 +192,7 @@ func TestBTService_StageFiles(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/app.log", []byte("log data"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		filePath, _ := fsmgr.Resolve("/home/user/docs/app.log")
 		_, err := svc.StageFiles(filePath, false)
@@ -212,7 +212,7 @@ func TestBTService_StageFiles(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/error.log", []byte("errors"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		count, err := svc.StageFiles(dirPath, false)
 		if err != nil {
@@ -232,7 +232,7 @@ func TestBTService_StageFiles(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/readme.txt", []byte("hello"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		filePath, _ := fsmgr.Resolve("/home/user/docs/readme.txt")
 		count, err := svc.StageFiles(filePath, false)

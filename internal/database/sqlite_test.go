@@ -50,7 +50,7 @@ func TestSQLiteDatabase_FindDirectoryByPath(t *testing.T) {
 		db := newTestDB(t)
 
 		// Create a directory first
-		created, err := db.CreateDirectory("/home/user/docs")
+		created, err := db.CreateDirectory("/home/user/docs", false)
 		if err != nil {
 			t.Fatalf("CreateDirectory() error = %v", err)
 		}
@@ -76,7 +76,7 @@ func TestSQLiteDatabase_CreateDirectory(t *testing.T) {
 	t.Run("creates directory successfully", func(t *testing.T) {
 		db := newTestDB(t)
 
-		dir, err := db.CreateDirectory("/home/user/docs")
+		dir, err := db.CreateDirectory("/home/user/docs", false)
 		if err != nil {
 			t.Fatalf("CreateDirectory() error = %v", err)
 		}
@@ -95,12 +95,12 @@ func TestSQLiteDatabase_CreateDirectory(t *testing.T) {
 	t.Run("fails on duplicate path", func(t *testing.T) {
 		db := newTestDB(t)
 
-		_, err := db.CreateDirectory("/home/user/docs")
+		_, err := db.CreateDirectory("/home/user/docs", false)
 		if err != nil {
 			t.Fatalf("first CreateDirectory() error = %v", err)
 		}
 
-		_, err = db.CreateDirectory("/home/user/docs")
+		_, err = db.CreateDirectory("/home/user/docs", false)
 		if err == nil {
 			t.Error("second CreateDirectory() expected error for duplicate path")
 		}
@@ -109,12 +109,12 @@ func TestSQLiteDatabase_CreateDirectory(t *testing.T) {
 	t.Run("creates multiple directories with different paths", func(t *testing.T) {
 		db := newTestDB(t)
 
-		dir1, err := db.CreateDirectory("/home/user/docs")
+		dir1, err := db.CreateDirectory("/home/user/docs", false)
 		if err != nil {
 			t.Fatalf("CreateDirectory(/home/user/docs) error = %v", err)
 		}
 
-		dir2, err := db.CreateDirectory("/home/user/photos")
+		dir2, err := db.CreateDirectory("/home/user/photos", false)
 		if err != nil {
 			t.Fatalf("CreateDirectory(/home/user/photos) error = %v", err)
 		}
@@ -128,7 +128,7 @@ func TestSQLiteDatabase_CreateDirectory(t *testing.T) {
 		db := newTestDB(t)
 
 		// Create child directory first
-		childDir, err := db.CreateDirectory("/home/user/docs/subdir")
+		childDir, err := db.CreateDirectory("/home/user/docs/subdir", false)
 		if err != nil {
 			t.Fatalf("CreateDirectory(child) error = %v", err)
 		}
@@ -137,7 +137,7 @@ func TestSQLiteDatabase_CreateDirectory(t *testing.T) {
 		createTestFile(t, db, childDir.ID, "file.txt")
 
 		// Now create the parent directory - should consolidate
-		parentDir, err := db.CreateDirectory("/home/user/docs")
+		parentDir, err := db.CreateDirectory("/home/user/docs", false)
 		if err != nil {
 			t.Fatalf("CreateDirectory(parent) error = %v", err)
 		}
@@ -168,11 +168,11 @@ func TestSQLiteDatabase_CreateDirectory(t *testing.T) {
 		db := newTestDB(t)
 
 		// Create nested child directories
-		child1, err := db.CreateDirectory("/home/user/docs/a")
+		child1, err := db.CreateDirectory("/home/user/docs/a", false)
 		if err != nil {
 			t.Fatalf("CreateDirectory(a) error = %v", err)
 		}
-		child2, err := db.CreateDirectory("/home/user/docs/b")
+		child2, err := db.CreateDirectory("/home/user/docs/b", false)
 		if err != nil {
 			t.Fatalf("CreateDirectory(b) error = %v", err)
 		}
@@ -182,7 +182,7 @@ func TestSQLiteDatabase_CreateDirectory(t *testing.T) {
 		createTestFile(t, db, child2.ID, "file2.txt")
 
 		// Create parent
-		parentDir, err := db.CreateDirectory("/home/user/docs")
+		parentDir, err := db.CreateDirectory("/home/user/docs", false)
 		if err != nil {
 			t.Fatalf("CreateDirectory(parent) error = %v", err)
 		}
@@ -223,10 +223,10 @@ func TestSQLiteDatabase_FindDirectoriesByPathPrefix(t *testing.T) {
 		db := newTestDB(t)
 
 		// Create parent and children
-		db.CreateDirectory("/home/user/docs")
-		db.CreateDirectory("/home/user/docs/a")
-		db.CreateDirectory("/home/user/docs/b")
-		db.CreateDirectory("/home/user/photos") // not a child
+		db.CreateDirectory("/home/user/docs", false)
+		db.CreateDirectory("/home/user/docs/a", false)
+		db.CreateDirectory("/home/user/docs/b", false)
+		db.CreateDirectory("/home/user/photos", false) // not a child
 
 		dirs, err := db.FindDirectoriesByPathPrefix("/home/user/docs")
 		if err != nil {
@@ -252,7 +252,7 @@ func TestSQLiteDatabase_FindDirectoriesByPathPrefix(t *testing.T) {
 	t.Run("returns empty for no children", func(t *testing.T) {
 		db := newTestDB(t)
 
-		db.CreateDirectory("/home/user/docs")
+		db.CreateDirectory("/home/user/docs", false)
 
 		dirs, err := db.FindDirectoriesByPathPrefix("/home/user/docs")
 		if err != nil {
@@ -268,7 +268,7 @@ func TestSQLiteDatabase_DeleteDirectory(t *testing.T) {
 	t.Run("deletes directory", func(t *testing.T) {
 		db := newTestDB(t)
 
-		dir, err := db.CreateDirectory("/home/user/docs")
+		dir, err := db.CreateDirectory("/home/user/docs", false)
 		if err != nil {
 			t.Fatalf("CreateDirectory() error = %v", err)
 		}
@@ -308,7 +308,7 @@ func TestSQLiteDatabase_SearchDirectoryForPath(t *testing.T) {
 	t.Run("finds directory containing path", func(t *testing.T) {
 		db := newTestDB(t)
 
-		dir, err := db.CreateDirectory("/home/user/docs")
+		dir, err := db.CreateDirectory("/home/user/docs", false)
 		if err != nil {
 			t.Fatalf("CreateDirectory() error = %v", err)
 		}
@@ -328,7 +328,7 @@ func TestSQLiteDatabase_SearchDirectoryForPath(t *testing.T) {
 	t.Run("returns nil for path not in any directory", func(t *testing.T) {
 		db := newTestDB(t)
 
-		db.CreateDirectory("/home/user/docs")
+		db.CreateDirectory("/home/user/docs", false)
 
 		found, err := db.SearchDirectoryForPath("/home/user/photos/image.jpg")
 		if err != nil {
@@ -343,7 +343,7 @@ func TestSQLiteDatabase_SearchDirectoryForPath(t *testing.T) {
 		db := newTestDB(t)
 
 		// Create parent first, then child (unusual but possible)
-		parent, _ := db.CreateDirectory("/home/user/docs")
+		parent, _ := db.CreateDirectory("/home/user/docs", false)
 		// Manually create child to simulate unusual state
 		db.queries.InsertDirectory(context.Background(), sqlc.InsertDirectoryParams{
 			ID:        "child-id",
@@ -370,7 +370,7 @@ func TestSQLiteDatabase_FindFileByPath(t *testing.T) {
 	t.Run("finds existing file", func(t *testing.T) {
 		db := newTestDB(t)
 
-		dir, _ := db.CreateDirectory("/home/user/docs")
+		dir, _ := db.CreateDirectory("/home/user/docs", false)
 		createTestFile(t, db, dir.ID, "file.txt")
 
 		file, err := db.FindFileByPath(dir, "file.txt")
@@ -388,7 +388,7 @@ func TestSQLiteDatabase_FindFileByPath(t *testing.T) {
 	t.Run("returns nil for non-existent file", func(t *testing.T) {
 		db := newTestDB(t)
 
-		dir, _ := db.CreateDirectory("/home/user/docs")
+		dir, _ := db.CreateDirectory("/home/user/docs", false)
 
 		file, err := db.FindFileByPath(dir, "nonexistent.txt")
 		if err != nil {
@@ -404,7 +404,7 @@ func TestSQLiteDatabase_FindOrCreateFile(t *testing.T) {
 	t.Run("creates new file", func(t *testing.T) {
 		db := newTestDB(t)
 
-		dir, _ := db.CreateDirectory("/home/user/docs")
+		dir, _ := db.CreateDirectory("/home/user/docs", false)
 
 		file, err := db.FindOrCreateFile(dir, "newfile.txt")
 		if err != nil {
@@ -424,7 +424,7 @@ func TestSQLiteDatabase_FindOrCreateFile(t *testing.T) {
 	t.Run("finds existing file", func(t *testing.T) {
 		db := newTestDB(t)
 
-		dir, _ := db.CreateDirectory("/home/user/docs")
+		dir, _ := db.CreateDirectory("/home/user/docs", false)
 		createTestFile(t, db, dir.ID, "existing.txt")
 
 		file1, _ := db.FindFileByPath(dir, "existing.txt")
@@ -456,7 +456,7 @@ func TestSQLiteDatabase_CreateFileSnapshotAndContent(t *testing.T) {
 
 	t.Run("creates file, content, and snapshot for new file", func(t *testing.T) {
 		db := newTestDB(t)
-		dir, _ := db.CreateDirectory("/home/user/docs")
+		dir, _ := db.CreateDirectory("/home/user/docs", false)
 
 		snap := makeSnapshot("abc123checksum")
 		err := db.CreateFileSnapshotAndContent(dir.ID, "newfile.txt", snap)
@@ -488,7 +488,7 @@ func TestSQLiteDatabase_CreateFileSnapshotAndContent(t *testing.T) {
 
 	t.Run("skips when snapshot unchanged", func(t *testing.T) {
 		db := newTestDB(t)
-		dir, _ := db.CreateDirectory("/home/user/docs")
+		dir, _ := db.CreateDirectory("/home/user/docs", false)
 
 		snap1 := makeSnapshot("checksum1")
 		if err := db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap1); err != nil {
@@ -522,7 +522,7 @@ func TestSQLiteDatabase_CreateFileSnapshotAndContent(t *testing.T) {
 
 	t.Run("creates new snapshot when content changes", func(t *testing.T) {
 		db := newTestDB(t)
-		dir, _ := db.CreateDirectory("/home/user/docs")
+		dir, _ := db.CreateDirectory("/home/user/docs", false)
 
 		snap1 := makeSnapshot("checksum-v1")
 		db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap1)
@@ -619,7 +619,7 @@ func TestSQLiteDatabase_BackupOperations(t *testing.T) {
 
 func TestSQLiteDatabase_BackupTo(t *testing.T) {
 	db := newTestDB(t)
-	db.CreateDirectory("/home/user/docs")
+	db.CreateDirectory("/home/user/docs", false)
 
 	destPath := filepath.Join(t.TempDir(), "backup.db")
 	if err := db.BackupTo(destPath); err != nil {
