@@ -23,6 +23,7 @@ type Config struct {
 
 // EncryptionConfig holds paths to the age key pair used for encryption.
 type EncryptionConfig struct {
+	Type           string `toml:"type"`             // "age" (default) or "test"
 	PublicKeyPath  string `toml:"public_key_path"`
 	PrivateKeyPath string `toml:"private_key_path"`
 }
