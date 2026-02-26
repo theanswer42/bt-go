@@ -14,13 +14,13 @@ CREATE TABLE backup_operations (
 CREATE TABLE contents (
     id TEXT PRIMARY KEY,  -- SHA-256 checksum (not a UUID)
     created_at DATETIME NOT NULL
-);
+, encrypted_content_id TEXT REFERENCES contents(id));
 
 CREATE TABLE directories (
     id TEXT PRIMARY KEY,  -- UUID
     path TEXT NOT NULL UNIQUE,  -- Absolute path on host
     created_at DATETIME NOT NULL
-);
+, encrypted INTEGER NOT NULL DEFAULT 0);
 
 CREATE TABLE file_snapshots (
     id TEXT PRIMARY KEY,  -- UUID

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"bt-go/internal/config"
 	"bt-go/internal/database"
 	"bt-go/internal/database/sqlc"
+	"bt-go/internal/encryption"
 	"bt-go/internal/fs"
 	"bt-go/internal/staging"
 	"bt-go/internal/vault"
@@ -19,14 +21,15 @@ import (
 // It constructs all dependencies from config, exposes high-level operations
 // that accept raw string paths, and manages the DB lifecycle on Close.
 type BTApp struct {
-	cfg     *config.Config
-	db      bt.Database
-	vault   bt.Vault
-	staging bt.StagingArea
-	fsmgr   bt.FilesystemManager
-	service *bt.BTService
-	op      *BackupOperation
-	logFile *os.File
+	cfg       *config.Config
+	db        bt.Database
+	vault     bt.Vault
+	staging   bt.StagingArea
+	fsmgr     bt.FilesystemManager
+	encryptor bt.Encryptor
+	service   *bt.BTService
+	op        *BackupOperation
+	logFile   *os.File
 }
 
 // NewBTApp creates a fully wired BTApp from the given config.
@@ -59,7 +62,7 @@ func NewBTApp(cfg *config.Config, operation string) (*BTApp, error) {
 	}
 
 	// Check local DB version against remote vault version.
-	remoteVersion, err := v.GetMetadataVersion(cfg.HostID)
+	remoteVersion, err := v.GetMetadataVersion(cfg.HostID, "db")
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("checking remote metadata version: %w", err)
@@ -76,6 +79,12 @@ func NewBTApp(cfg *config.Config, operation string) (*BTApp, error) {
 		return nil, fmt.Errorf("local database is behind remote (local=%d, remote=%d): restore from vault or re-initialize", localMax, remoteVersion)
 	}
 
+	enc, err := encryption.NewEncryptorFromConfig(cfg.Encryption)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("creating encryptor: %w", err)
+	}
+
 	opID := time.Now().UTC().Format("20060102T150405Z")
 	logger, logFile, err := newLogger(cfg.LogDir, opID)
 	if err != nil {
@@ -83,18 +92,19 @@ func NewBTApp(cfg *config.Config, operation string) (*BTApp, error) {
 		return nil, fmt.Errorf("creating logger: %w", err)
 	}
 
-	svc := bt.NewBTService(db, sa, v, fsmgr, &slogAdapter{l: logger}, bt.RealClock{}, bt.UUIDGenerator{})
+	svc := bt.NewBTService(db, sa, v, fsmgr, enc, &slogAdapter{l: logger}, bt.RealClock{}, bt.UUIDGenerator{})
 	op := NewBackupOperation(operation, "")
 
 	return &BTApp{
-		cfg:     cfg,
-		db:      db,
-		vault:   v,
-		staging: sa,
-		fsmgr:   fsmgr,
-		service: svc,
-		op:      op,
-		logFile: logFile,
+		cfg:       cfg,
+		db:        db,
+		vault:     v,
+		staging:   sa,
+		fsmgr:     fsmgr,
+		encryptor: enc,
+		service:   svc,
+		op:        op,
+		logFile:   logFile,
 	}, nil
 }
 
@@ -113,7 +123,8 @@ func (a *BTApp) persistOperation() error {
 }
 
 // AddDirectory resolves the given path and registers it for tracking.
-func (a *BTApp) AddDirectory(rawPath string) error {
+// encrypted marks whether files in this directory should be encrypted on backup.
+func (a *BTApp) AddDirectory(rawPath string, encrypted bool) error {
 	if err := a.persistOperation(); err != nil {
 		return err
 	}
@@ -121,7 +132,7 @@ func (a *BTApp) AddDirectory(rawPath string) error {
 	if err != nil {
 		return fmt.Errorf("resolving path: %w", err)
 	}
-	return a.service.AddDirectory(p)
+	return a.service.AddDirectory(p, encrypted)
 }
 
 // StageFiles resolves the given path and stages file(s) for backup.
@@ -159,16 +170,28 @@ func (a *BTApp) GetHistory(limit int) ([]*sqlc.BackupOperation, error) {
 	return a.service.GetHistory(limit)
 }
 
+// EncryptionConfigured returns true if the encryption key files exist.
+func (a *BTApp) EncryptionConfigured() bool {
+	return a.encryptor.IsConfigured()
+}
+
+// UnlockEncryption decrypts the private key using the given passphrase and returns
+// a DecryptionContext for use during the restore session.
+func (a *BTApp) UnlockEncryption(passphrase string) (bt.DecryptionContext, error) {
+	return a.encryptor.Unlock(passphrase)
+}
+
 // RestoreFiles resolves the given path and restores file(s) from the vault.
 // The path may not exist on disk — resolution uses filepath.Abs only.
 // If checksum is non-empty, restores a specific version (file only, not directory).
+// decryptCtx must be non-nil when restoring encrypted files; pass nil for unencrypted restores.
 // Returns the list of restored file paths.
-func (a *BTApp) RestoreFiles(rawPath string, checksum string) ([]string, error) {
+func (a *BTApp) RestoreFiles(rawPath string, checksum string, decryptCtx bt.DecryptionContext) ([]string, error) {
 	absPath, err := filepath.Abs(rawPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolving path: %w", err)
 	}
-	return a.service.Restore(absPath, checksum)
+	return a.service.Restore(absPath, checksum, decryptCtx)
 }
 
 // BackupAll processes all staged files and backs them up to the vault.
@@ -233,6 +256,15 @@ func (a *BTApp) Close() error {
 		if tmpPath != "" {
 			os.Remove(tmpPath)
 		}
+
+		// Upload encryption key files to vault (idempotent; version is always 1).
+		if a.encryptor.IsConfigured() {
+			if err := a.uploadKeyMetadata(); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+			}
+		}
 	} else {
 		// Non-mutating operation: just close the database, no upload
 		if err := a.db.Close(); err != nil {
@@ -247,7 +279,8 @@ func (a *BTApp) Close() error {
 	return firstErr
 }
 
-// uploadMetadata opens the temp DB file and uploads it to the vault as metadata.
+// uploadMetadata opens the temp DB file, encrypts it if encryption is configured,
+// and uploads it to the vault as metadata.
 func (a *BTApp) uploadMetadata(path string, version int64) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -255,14 +288,51 @@ func (a *BTApp) uploadMetadata(path string, version int64) error {
 	}
 	defer f.Close()
 
+	if a.encryptor.IsConfigured() {
+		var buf bytes.Buffer
+		if err := a.encryptor.Encrypt(f, &buf); err != nil {
+			return fmt.Errorf("encrypting db backup: %w", err)
+		}
+		if err := a.vault.PutMetadata(a.cfg.HostID, "db", &buf, int64(buf.Len()), version); err != nil {
+			return fmt.Errorf("uploading metadata to vault: %w", err)
+		}
+		return nil
+	}
+
 	info, err := f.Stat()
 	if err != nil {
 		return fmt.Errorf("stat db backup: %w", err)
 	}
 
-	if err := a.vault.PutMetadata(a.cfg.HostID, f, info.Size(), version); err != nil {
+	if err := a.vault.PutMetadata(a.cfg.HostID, "db", f, info.Size(), version); err != nil {
 		return fmt.Errorf("uploading metadata to vault: %w", err)
 	}
 
+	return nil
+}
+
+// uploadKeyMetadata uploads the public and private key files to the vault as metadata.
+// Keys use a fixed version (1) since they are immutable after initial setup.
+func (a *BTApp) uploadKeyMetadata() error {
+	keys := []struct{ name, path string }{
+		{"public_key", a.cfg.Encryption.PublicKeyPath},
+		{"private_key", a.cfg.Encryption.PrivateKeyPath},
+	}
+	for _, k := range keys {
+		f, err := os.Open(k.path)
+		if err != nil {
+			return fmt.Errorf("opening %s for upload: %w", k.name, err)
+		}
+		info, err := f.Stat()
+		if err != nil {
+			f.Close()
+			return fmt.Errorf("stat %s: %w", k.name, err)
+		}
+		if err := a.vault.PutMetadata(a.cfg.HostID, k.name, f, info.Size(), 1); err != nil {
+			f.Close()
+			return fmt.Errorf("uploading %s to vault: %w", k.name, err)
+		}
+		f.Close()
+	}
 	return nil
 }

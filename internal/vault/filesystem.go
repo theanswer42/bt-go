@@ -74,23 +74,29 @@ func (v *FileSystemVault) GetContent(checksum string, w io.Writer) error {
 	return v.readFile(srcPath, w, fmt.Sprintf("content not found: %s", checksum))
 }
 
-// PutMetadata stores metadata for a specific host along with a version marker.
-func (v *FileSystemVault) PutMetadata(hostID string, r io.Reader, size int64, version int64) error {
-	destPath := filepath.Join(v.metadataDir, hostID+".db")
+// PutMetadata stores a named metadata item for a specific host along with a version marker.
+// Layout: <root>/metadata/<hostID>/<name> and <root>/metadata/<hostID>/<name>.version
+func (v *FileSystemVault) PutMetadata(hostID string, name string, r io.Reader, size int64, version int64) error {
+	hostDir := filepath.Join(v.metadataDir, hostID)
+	if err := os.MkdirAll(hostDir, 0755); err != nil {
+		return fmt.Errorf("creating host metadata directory: %w", err)
+	}
+
+	destPath := filepath.Join(hostDir, name)
 	if err := v.writeFile(destPath, r, size); err != nil {
 		return err
 	}
 
 	// Write version file
-	versionPath := filepath.Join(v.metadataDir, hostID+".version")
+	versionPath := filepath.Join(hostDir, name+".version")
 	versionData := strconv.FormatInt(version, 10)
 	return os.WriteFile(versionPath, []byte(versionData), 0644)
 }
 
-// GetMetadataVersion returns the metadata version for a host.
+// GetMetadataVersion returns the metadata version for a named item on a host.
 // Returns 0 if no version file exists.
-func (v *FileSystemVault) GetMetadataVersion(hostID string) (int64, error) {
-	versionPath := filepath.Join(v.metadataDir, hostID+".version")
+func (v *FileSystemVault) GetMetadataVersion(hostID string, name string) (int64, error) {
+	versionPath := filepath.Join(v.metadataDir, hostID, name+".version")
 	data, err := os.ReadFile(versionPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -106,10 +112,10 @@ func (v *FileSystemVault) GetMetadataVersion(hostID string) (int64, error) {
 	return version, nil
 }
 
-// GetMetadata retrieves metadata for a specific host and writes it to w.
-func (v *FileSystemVault) GetMetadata(hostID string, w io.Writer) error {
-	srcPath := filepath.Join(v.metadataDir, hostID+".db")
-	return v.readFile(srcPath, w, fmt.Sprintf("metadata not found for host: %s", hostID))
+// GetMetadata retrieves a named metadata item for a specific host and writes it to w.
+func (v *FileSystemVault) GetMetadata(hostID string, name string, w io.Writer) error {
+	srcPath := filepath.Join(v.metadataDir, hostID, name)
+	return v.readFile(srcPath, w, fmt.Sprintf("metadata %q not found for host: %s", name, hostID))
 }
 
 // ValidateSetup verifies that the vault directories are accessible.

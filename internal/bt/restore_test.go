@@ -19,7 +19,7 @@ func setupRestore(t *testing.T) (*bt.BTService, *testutil.MockFilesystemManager,
 	fsmgr := testutil.NewMockFilesystemManager()
 	staging := testutil.NewTestStagingArea(fsmgr)
 	vault := testutil.NewTestVault()
-	svc := bt.NewBTService(db, staging, vault, fsmgr, bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
+	svc := bt.NewBTService(db, staging, vault, fsmgr, testutil.NewTestEncryptor(), bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
 
 	dir := t.TempDir()
 	return svc, fsmgr, dir
@@ -38,7 +38,7 @@ func backupOneFile(t *testing.T, svc *bt.BTService, fsmgr *testutil.MockFilesyst
 	if err != nil {
 		t.Fatalf("resolve dir: %v", err)
 	}
-	if err := svc.AddDirectory(dirP); err != nil {
+	if err := svc.AddDirectory(dirP, false); err != nil {
 		t.Fatalf("add directory: %v", err)
 	}
 
@@ -62,7 +62,7 @@ func TestBTService_Restore(t *testing.T) {
 		content := []byte("hello world")
 		backupOneFile(t, svc, fsmgr, dir, "file.txt", content)
 
-		paths, err := svc.Restore(filepath.Join(dir, "file.txt"), "")
+		paths, err := svc.Restore(filepath.Join(dir, "file.txt"), "", nil)
 		if err != nil {
 			t.Fatalf("Restore() error = %v", err)
 		}
@@ -107,7 +107,7 @@ func TestBTService_Restore(t *testing.T) {
 		svc.BackupAll()
 
 		// Restore v1 by checksum
-		paths, err := svc.Restore(filepath.Join(dir, "file.txt"), v1Checksum)
+		paths, err := svc.Restore(filepath.Join(dir, "file.txt"), v1Checksum, nil)
 		if err != nil {
 			t.Fatalf("Restore() error = %v", err)
 		}
@@ -130,7 +130,7 @@ func TestBTService_Restore(t *testing.T) {
 		t.Parallel()
 		svc, _, dir := setupRestore(t)
 
-		_, err := svc.Restore(filepath.Join(dir, "nope.txt"), "")
+		_, err := svc.Restore(filepath.Join(dir, "nope.txt"), "", nil)
 		if err == nil {
 			t.Fatal("expected error for untracked file")
 		}
@@ -142,10 +142,10 @@ func TestBTService_Restore(t *testing.T) {
 
 		fsmgr.AddDirectory(dir)
 		dirP, _ := fsmgr.Resolve(dir)
-		svc.AddDirectory(dirP)
+		svc.AddDirectory(dirP, false)
 
 		// File is tracked in dir but never backed up
-		_, err := svc.Restore(filepath.Join(dir, "missing.txt"), "")
+		_, err := svc.Restore(filepath.Join(dir, "missing.txt"), "", nil)
 		if err == nil {
 			t.Fatal("expected error for file with no backup")
 		}
@@ -163,7 +163,7 @@ func TestBTService_Restore(t *testing.T) {
 		svc.StageFiles(fileP, false)
 		svc.BackupAll()
 
-		paths, err := svc.Restore(dir, "")
+		paths, err := svc.Restore(dir, "", nil)
 		if err != nil {
 			t.Fatalf("Restore() error = %v", err)
 		}
@@ -188,7 +188,7 @@ func TestBTService_Restore(t *testing.T) {
 
 		backupOneFile(t, svc, fsmgr, dir, "file.txt", []byte("data"))
 
-		_, err := svc.Restore(dir, "somechecksum")
+		_, err := svc.Restore(dir, "somechecksum", nil)
 		if err == nil {
 			t.Fatal("expected error for directory + checksum")
 		}
@@ -201,7 +201,7 @@ func TestBTService_Restore(t *testing.T) {
 		backupOneFile(t, svc, fsmgr, dir, "file.txt", []byte("data"))
 
 		// First restore succeeds
-		paths, err := svc.Restore(filepath.Join(dir, "file.txt"), "")
+		paths, err := svc.Restore(filepath.Join(dir, "file.txt"), "", nil)
 		if err != nil {
 			t.Fatalf("first Restore() error = %v", err)
 		}
@@ -212,7 +212,7 @@ func TestBTService_Restore(t *testing.T) {
 		}
 
 		// Second restore of same file+version should fail
-		_, err = svc.Restore(filepath.Join(dir, "file.txt"), "")
+		_, err = svc.Restore(filepath.Join(dir, "file.txt"), "", nil)
 		if err == nil {
 			t.Fatal("expected error when output file already exists")
 		}
@@ -227,9 +227,143 @@ func TestBTService_Restore(t *testing.T) {
 
 		backupOneFile(t, svc, fsmgr, dir, "file.txt", []byte("data"))
 
-		_, err := svc.Restore(filepath.Join(dir, "file.txt"), "nonexistentchecksum")
+		_, err := svc.Restore(filepath.Join(dir, "file.txt"), "nonexistentchecksum", nil)
 		if err == nil {
 			t.Fatal("expected error for bad checksum")
+		}
+	})
+}
+
+func TestBTService_Restore_Encrypted(t *testing.T) {
+	// backupOneFileEncrypted backs up a file in an encrypted directory.
+	backupOneFileEncrypted := func(t *testing.T, svc *bt.BTService, fsmgr *testutil.MockFilesystemManager, dirPath string, relPath string, content []byte) {
+		t.Helper()
+		fsmgr.AddDirectory(dirPath)
+		fullPath := filepath.Join(dirPath, relPath)
+		fsmgr.AddFile(fullPath, content)
+
+		dirP, err := fsmgr.Resolve(dirPath)
+		if err != nil {
+			t.Fatalf("resolve dir: %v", err)
+		}
+		if err := svc.AddDirectory(dirP, true); err != nil { // encrypted=true
+			t.Fatalf("add directory: %v", err)
+		}
+		fileP, err := fsmgr.Resolve(fullPath)
+		if err != nil {
+			t.Fatalf("resolve file: %v", err)
+		}
+		if _, err := svc.StageFiles(fileP, false); err != nil {
+			t.Fatalf("stage: %v", err)
+		}
+		if _, err := svc.BackupAll(); err != nil {
+			t.Fatalf("backup: %v", err)
+		}
+	}
+
+	t.Run("restores encrypted file with valid decryption context", func(t *testing.T) {
+		t.Parallel()
+		db := testutil.NewTestDatabase(t)
+		fsmgr := testutil.NewMockFilesystemManager()
+		staging := testutil.NewTestStagingArea(fsmgr)
+		vault := testutil.NewTestVault()
+		enc := testutil.NewTestEncryptor()
+		svc := bt.NewBTService(db, staging, vault, fsmgr, enc, bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
+
+		dir := t.TempDir()
+		content := []byte("secret data")
+		backupOneFileEncrypted(t, svc, fsmgr, dir, "secret.txt", content)
+
+		// Unlock returns a decryption context (passphrase is ignored by TestEncryptor).
+		decryptCtx, err := enc.Unlock("")
+		if err != nil {
+			t.Fatalf("Unlock() error = %v", err)
+		}
+
+		paths, err := svc.Restore(filepath.Join(dir, "secret.txt"), "", decryptCtx)
+		if err != nil {
+			t.Fatalf("Restore() error = %v", err)
+		}
+		if len(paths) != 1 {
+			t.Fatalf("got %d paths, want 1", len(paths))
+		}
+
+		got, err := os.ReadFile(paths[0])
+		if err != nil {
+			t.Fatalf("reading restored file: %v", err)
+		}
+		if string(got) != string(content) {
+			t.Errorf("content = %q, want %q", got, content)
+		}
+	})
+
+	t.Run("returns error when restoring encrypted file without decryption context", func(t *testing.T) {
+		t.Parallel()
+		db := testutil.NewTestDatabase(t)
+		fsmgr := testutil.NewMockFilesystemManager()
+		staging := testutil.NewTestStagingArea(fsmgr)
+		vault := testutil.NewTestVault()
+		enc := testutil.NewTestEncryptor()
+		svc := bt.NewBTService(db, staging, vault, fsmgr, enc, bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
+
+		dir := t.TempDir()
+		backupOneFileEncrypted(t, svc, fsmgr, dir, "secret.txt", []byte("secret data"))
+
+		_, err := svc.Restore(filepath.Join(dir, "secret.txt"), "", nil)
+		if err == nil {
+			t.Fatal("expected error restoring encrypted file without decryption context")
+		}
+	})
+
+	t.Run("restores encrypted directory with valid decryption context", func(t *testing.T) {
+		t.Parallel()
+		db := testutil.NewTestDatabase(t)
+		fsmgr := testutil.NewMockFilesystemManager()
+		staging := testutil.NewTestStagingArea(fsmgr)
+		vault := testutil.NewTestVault()
+		enc := testutil.NewTestEncryptor()
+		svc := bt.NewBTService(db, staging, vault, fsmgr, enc, bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
+
+		dir := t.TempDir()
+		backupOneFileEncrypted(t, svc, fsmgr, dir, "a.txt", []byte("alpha"))
+
+		// Add a second file to the same encrypted directory.
+		fsmgr.AddFile(filepath.Join(dir, "b.txt"), []byte("beta"))
+		fileP, _ := fsmgr.Resolve(filepath.Join(dir, "b.txt"))
+		svc.StageFiles(fileP, false)
+		svc.BackupAll()
+
+		decryptCtx, _ := enc.Unlock("")
+
+		paths, err := svc.Restore(dir, "", decryptCtx)
+		if err != nil {
+			t.Fatalf("Restore() error = %v", err)
+		}
+		if len(paths) != 2 {
+			t.Fatalf("got %d paths, want 2", len(paths))
+		}
+
+		// Collect restored contents.
+		contents := make(map[string]string)
+		for _, p := range paths {
+			data, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatalf("reading %s: %v", p, err)
+			}
+			contents[filepath.Base(filepath.Dir(p)+"/"+filepath.Base(p))] = string(data)
+		}
+		// Verify both files were decrypted correctly.
+		found := make(map[string]bool)
+		for _, data := range contents {
+			if data == "alpha" || data == "beta" {
+				found[data] = true
+			}
+		}
+		if !found["alpha"] {
+			t.Error("expected to find restored content 'alpha'")
+		}
+		if !found["beta"] {
+			t.Error("expected to find restored content 'beta'")
 		}
 	})
 }

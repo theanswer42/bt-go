@@ -7,10 +7,13 @@ import (
 	"time"
 
 	"bt-go/internal/app"
+	"bt-go/internal/bt"
 	"bt-go/internal/config"
+	"bt-go/internal/encryption"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 func main() {
@@ -53,28 +56,62 @@ var configCmd = &cobra.Command{
 
 var configInitCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize configuration",
+	Short: "Initialize configuration and generate encryption keys",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get application defaults
 		defaults, err := app.GetDefaults()
 		if err != nil {
 			return fmt.Errorf("failed to get defaults: %w", err)
 		}
 
-		// Generate a new host ID
 		hostID := uuid.New().String()
-
-		// Create config with defaults
 		cfg := config.NewConfig(hostID, defaults["base_dir"])
 
-		// Initialize config file
+		// Write config file first; errors if it already exists.
 		if err := config.Init(defaults["config_path"], cfg); err != nil {
 			return fmt.Errorf("failed to initialize config: %w", err)
 		}
 
+		// Generate encryption key pair.
+		enc, err := encryption.NewEncryptorFromConfig(cfg.Encryption)
+		if err != nil {
+			return fmt.Errorf("creating encryptor: %w", err)
+		}
+
+		if enc.IsConfigured() {
+			return fmt.Errorf("encryption keys already exist at %s", cfg.Encryption.PublicKeyPath)
+		}
+
+		fmt.Print("Enter passphrase for encryption key: ")
+		passphrase, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			return fmt.Errorf("reading passphrase: %w", err)
+		}
+
+		if len(passphrase) == 0 {
+			return fmt.Errorf("passphrase must not be empty")
+		}
+
+		fmt.Print("Confirm passphrase: ")
+		confirm, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			return fmt.Errorf("reading passphrase confirmation: %w", err)
+		}
+
+		if string(passphrase) != string(confirm) {
+			return fmt.Errorf("passphrases do not match")
+		}
+
+		if err := enc.Setup(string(passphrase)); err != nil {
+			return fmt.Errorf("generating encryption keys: %w", err)
+		}
+
 		fmt.Printf("Configuration initialized at %s\n", defaults["config_path"])
-		fmt.Printf("Host ID: %s\n", hostID)
-		fmt.Printf("Base Dir: %s\n", defaults["base_dir"])
+		fmt.Printf("Host ID:     %s\n", hostID)
+		fmt.Printf("Base Dir:    %s\n", defaults["base_dir"])
+		fmt.Printf("Public key:  %s\n", cfg.Encryption.PublicKeyPath)
+		fmt.Printf("Private key: %s\n", cfg.Encryption.PrivateKeyPath)
 		return nil
 	},
 }
@@ -127,6 +164,8 @@ var dirInitCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Track current directory",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		encrypted, _ := cmd.Flags().GetBool("encrypted")
+
 		a, err := newApp("AddDirectory")
 		if err != nil {
 			return err
@@ -138,7 +177,7 @@ var dirInitCmd = &cobra.Command{
 			return fmt.Errorf("getting current directory: %w", err)
 		}
 
-		if err := a.AddDirectory(cwd); err != nil {
+		if err := a.AddDirectory(cwd, encrypted); err != nil {
 			return fmt.Errorf("tracking directory: %w", err)
 		}
 
@@ -353,7 +392,23 @@ var restoreCmd = &cobra.Command{
 			checksum = args[1]
 		}
 
-		paths, err := a.RestoreFiles(args[0], checksum)
+		// Prompt for passphrase once if encryption keys are present.
+		// The decryption context is reused for all files in this restore.
+		var decryptCtx bt.DecryptionContext
+		if a.EncryptionConfigured() {
+			fmt.Print("Enter passphrase for decryption: ")
+			passphrase, err := term.ReadPassword(int(os.Stdin.Fd()))
+			fmt.Println()
+			if err != nil {
+				return fmt.Errorf("reading passphrase: %w", err)
+			}
+			decryptCtx, err = a.UnlockEncryption(string(passphrase))
+			if err != nil {
+				return fmt.Errorf("unlocking encryption: %w", err)
+			}
+		}
+
+		paths, err := a.RestoreFiles(args[0], checksum, decryptCtx)
 		if err != nil {
 			return err
 		}
@@ -374,6 +429,7 @@ func init() {
 
 	// dir subcommands
 	dirCmd.AddCommand(dirInitCmd)
+	dirInitCmd.Flags().Bool("encrypted", false, "Encrypt files in this directory on backup")
 	dirCmd.AddCommand(dirStatusCmd)
 	dirStatusCmd.Flags().BoolP("recursive", "r", false, "Recurse into subdirectories")
 

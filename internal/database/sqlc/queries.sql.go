@@ -56,19 +56,19 @@ func (q *Queries) GetBackupOperations(ctx context.Context, limit int64) ([]Backu
 
 const getContentByID = `-- name: GetContentByID :one
 
-SELECT id, created_at FROM contents WHERE id = ? LIMIT 1
+SELECT id, created_at, encrypted_content_id FROM contents WHERE id = ? LIMIT 1
 `
 
 // Content queries
 func (q *Queries) GetContentByID(ctx context.Context, id string) (Content, error) {
 	row := q.db.QueryRowContext(ctx, getContentByID, id)
 	var i Content
-	err := row.Scan(&i.ID, &i.CreatedAt)
+	err := row.Scan(&i.ID, &i.CreatedAt, &i.EncryptedContentID)
 	return i, err
 }
 
 const getDirectoriesByPathPrefix = `-- name: GetDirectoriesByPathPrefix :many
-SELECT id, path, created_at FROM directories WHERE path LIKE ?1 ORDER BY path
+SELECT id, path, created_at, encrypted FROM directories WHERE path LIKE ?1 ORDER BY path
 `
 
 func (q *Queries) GetDirectoriesByPathPrefix(ctx context.Context, path string) ([]Directory, error) {
@@ -80,7 +80,12 @@ func (q *Queries) GetDirectoriesByPathPrefix(ctx context.Context, path string) (
 	var items []Directory
 	for rows.Next() {
 		var i Directory
-		if err := rows.Scan(&i.ID, &i.Path, &i.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Path,
+			&i.CreatedAt,
+			&i.Encrypted,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -94,10 +99,26 @@ func (q *Queries) GetDirectoriesByPathPrefix(ctx context.Context, path string) (
 	return items, nil
 }
 
+const getDirectoryByID = `-- name: GetDirectoryByID :one
+SELECT id, path, created_at, encrypted FROM directories WHERE id = ? LIMIT 1
+`
+
+func (q *Queries) GetDirectoryByID(ctx context.Context, id string) (Directory, error) {
+	row := q.db.QueryRowContext(ctx, getDirectoryByID, id)
+	var i Directory
+	err := row.Scan(
+		&i.ID,
+		&i.Path,
+		&i.CreatedAt,
+		&i.Encrypted,
+	)
+	return i, err
+}
+
 const getDirectoryByPath = `-- name: GetDirectoryByPath :one
 
 
-SELECT id, path, created_at FROM directories WHERE path = ? LIMIT 1
+SELECT id, path, created_at, encrypted FROM directories WHERE path = ? LIMIT 1
 `
 
 // SQL queries for bt database operations
@@ -107,7 +128,12 @@ SELECT id, path, created_at FROM directories WHERE path = ? LIMIT 1
 func (q *Queries) GetDirectoryByPath(ctx context.Context, path string) (Directory, error) {
 	row := q.db.QueryRowContext(ctx, getDirectoryByPath, path)
 	var i Directory
-	err := row.Scan(&i.ID, &i.Path, &i.CreatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.Path,
+		&i.CreatedAt,
+		&i.Encrypted,
+	)
 	return i, err
 }
 
@@ -320,39 +346,51 @@ func (q *Queries) InsertBackupOperation(ctx context.Context, arg InsertBackupOpe
 }
 
 const insertContent = `-- name: InsertContent :one
-INSERT INTO contents (id, created_at)
-VALUES (?, ?)
-RETURNING id, created_at
+INSERT INTO contents (id, created_at, encrypted_content_id)
+VALUES (?, ?, ?)
+RETURNING id, created_at, encrypted_content_id
 `
 
 type InsertContentParams struct {
-	ID        string    `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                 string         `json:"id"`
+	CreatedAt          time.Time      `json:"created_at"`
+	EncryptedContentID sql.NullString `json:"encrypted_content_id"`
 }
 
 func (q *Queries) InsertContent(ctx context.Context, arg InsertContentParams) (Content, error) {
-	row := q.db.QueryRowContext(ctx, insertContent, arg.ID, arg.CreatedAt)
+	row := q.db.QueryRowContext(ctx, insertContent, arg.ID, arg.CreatedAt, arg.EncryptedContentID)
 	var i Content
-	err := row.Scan(&i.ID, &i.CreatedAt)
+	err := row.Scan(&i.ID, &i.CreatedAt, &i.EncryptedContentID)
 	return i, err
 }
 
 const insertDirectory = `-- name: InsertDirectory :one
-INSERT INTO directories (id, path, created_at)
-VALUES (?, ?, ?)
-RETURNING id, path, created_at
+INSERT INTO directories (id, path, created_at, encrypted)
+VALUES (?, ?, ?, ?)
+RETURNING id, path, created_at, encrypted
 `
 
 type InsertDirectoryParams struct {
 	ID        string    `json:"id"`
 	Path      string    `json:"path"`
 	CreatedAt time.Time `json:"created_at"`
+	Encrypted int64     `json:"encrypted"`
 }
 
 func (q *Queries) InsertDirectory(ctx context.Context, arg InsertDirectoryParams) (Directory, error) {
-	row := q.db.QueryRowContext(ctx, insertDirectory, arg.ID, arg.Path, arg.CreatedAt)
+	row := q.db.QueryRowContext(ctx, insertDirectory,
+		arg.ID,
+		arg.Path,
+		arg.CreatedAt,
+		arg.Encrypted,
+	)
 	var i Directory
-	err := row.Scan(&i.ID, &i.Path, &i.CreatedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.Path,
+		&i.CreatedAt,
+		&i.Encrypted,
+	)
 	return i, err
 }
 

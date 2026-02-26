@@ -15,7 +15,7 @@ func TestBTService_GetFileHistory(t *testing.T) {
 		fsmgr := testutil.NewMockFilesystemManager()
 		staging := testutil.NewTestStagingArea(fsmgr)
 		vault := testutil.NewTestVault()
-		svc := bt.NewBTService(db, staging, vault, fsmgr, bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
+		svc := bt.NewBTService(db, staging, vault, fsmgr, testutil.NewTestEncryptor(), bt.NewNopLogger(), bt.RealClock{}, bt.UUIDGenerator{})
 		return svc, fsmgr
 	}
 
@@ -27,7 +27,7 @@ func TestBTService_GetFileHistory(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/file.txt", []byte("version1"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		// First backup
 		filePath, _ := fsmgr.Resolve("/home/user/docs/file.txt")
@@ -89,7 +89,7 @@ func TestBTService_GetFileHistory(t *testing.T) {
 		fsmgr.AddFile("/home/user/docs/new.txt", []byte("data"))
 
 		dirPath, _ := fsmgr.Resolve("/home/user/docs")
-		svc.AddDirectory(dirPath)
+		svc.AddDirectory(dirPath, false)
 
 		filePath, _ := fsmgr.Resolve("/home/user/docs/new.txt")
 		_, err := svc.GetFileHistory(filePath)

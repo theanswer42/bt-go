@@ -1,6 +1,9 @@
 package bt
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -15,6 +18,7 @@ type BTService struct {
 	stagingArea StagingArea
 	vault       Vault
 	fsmgr       FilesystemManager
+	encryptor   Encryptor
 	logger      Logger
 	clock       Clock
 	idgen       IDGenerator
@@ -23,12 +27,13 @@ type BTService struct {
 // NewBTService creates a new BTService with the provided dependencies.
 // Currently only a single vault is supported; multiple vaults require additional
 // implementation work (content seeking, transaction handling across vaults).
-func NewBTService(database Database, stagingArea StagingArea, vault Vault, fsmgr FilesystemManager, logger Logger, clock Clock, idgen IDGenerator) *BTService {
+func NewBTService(database Database, stagingArea StagingArea, vault Vault, fsmgr FilesystemManager, encryptor Encryptor, logger Logger, clock Clock, idgen IDGenerator) *BTService {
 	return &BTService{
 		database:    database,
 		stagingArea: stagingArea,
 		vault:       vault,
 		fsmgr:       fsmgr,
+		encryptor:   encryptor,
 		logger:      logger,
 		clock:       clock,
 		idgen:       idgen,
@@ -38,7 +43,8 @@ func NewBTService(database Database, stagingArea StagingArea, vault Vault, fsmgr
 // AddDirectory registers a directory for tracking.
 // The path must point to a directory, not a file.
 // If the directory is already tracked, this is a no-op.
-func (s *BTService) AddDirectory(path *Path) error {
+// encrypted marks whether files in this directory should be encrypted on backup.
+func (s *BTService) AddDirectory(path *Path, encrypted bool) error {
 	if !path.IsDir() {
 		return fmt.Errorf("path is not a directory: %s", path.String())
 	}
@@ -54,7 +60,7 @@ func (s *BTService) AddDirectory(path *Path) error {
 	}
 
 	// Create the directory record
-	_, err = s.database.CreateDirectory(path.String())
+	_, err = s.database.CreateDirectory(path.String(), encrypted)
 	if err != nil {
 		return fmt.Errorf("creating directory: %w", err)
 	}
@@ -177,27 +183,55 @@ func (s *BTService) backupFile(content io.Reader, snapshot sqlc.FileSnapshot, di
 	checksum := snapshot.ContentID
 
 	// Check if content already exists in the database (and thus in vault).
-	// If so, we can skip the vault upload entirely.
+	// If so, we can skip the vault upload and DB write entirely.
 	existingContent, err := s.database.FindContentByChecksum(checksum)
 	if err != nil {
 		return fmt.Errorf("checking for existing content: %w", err)
 	}
+	if existingContent != nil {
+		s.logger.Debug("content deduplicated", "checksum", checksum)
+		snapshot.ID = s.idgen.New()
+		snapshot.CreatedAt = s.clock.Now()
+		return s.database.CreateFileSnapshotAndContent(directoryID, relativePath, &snapshot, "")
+	}
 
-	if existingContent == nil {
-		// Upload content to vault first — this is idempotent by checksum.
+	// New content — check if the directory is encrypted.
+	dir, err := s.database.FindDirectoryByID(directoryID)
+	if err != nil {
+		return fmt.Errorf("finding directory: %w", err)
+	}
+	if dir == nil {
+		return fmt.Errorf("directory not found: %s", directoryID)
+	}
+
+	snapshot.ID = s.idgen.New()
+	snapshot.CreatedAt = s.clock.Now()
+
+	if dir.Encrypted != 0 {
+		// Encrypted directory: encrypt the content, compute the encrypted checksum,
+		// upload the ciphertext, then record both content records in the DB.
+		var encBuf bytes.Buffer
+		if err := s.encryptor.Encrypt(content, &encBuf); err != nil {
+			return fmt.Errorf("encrypting content: %w", err)
+		}
+		encBytes := encBuf.Bytes()
+		h := sha256.Sum256(encBytes)
+		encChecksum := hex.EncodeToString(h[:])
+
+		if err := s.vault.PutContent(encChecksum, bytes.NewReader(encBytes), int64(len(encBytes))); err != nil {
+			return fmt.Errorf("uploading encrypted content to vault: %w", err)
+		}
+		if err := s.database.CreateFileSnapshotAndContent(directoryID, relativePath, &snapshot, encChecksum); err != nil {
+			return fmt.Errorf("recording backup in database: %w", err)
+		}
+	} else {
+		// Unencrypted: upload plaintext directly.
 		if err := s.vault.PutContent(checksum, content, snapshot.Size); err != nil {
 			return fmt.Errorf("uploading to vault: %w", err)
 		}
-	} else {
-		s.logger.Debug("content deduplicated", "checksum", checksum)
-	}
-
-	// Atomically: find/create file, create content record (if needed),
-	// compare against current snapshot, and create a new one if anything changed.
-	snapshot.ID = s.idgen.New()
-	snapshot.CreatedAt = s.clock.Now()
-	if err := s.database.CreateFileSnapshotAndContent(directoryID, relativePath, &snapshot); err != nil {
-		return fmt.Errorf("recording backup in database: %w", err)
+		if err := s.database.CreateFileSnapshotAndContent(directoryID, relativePath, &snapshot, ""); err != nil {
+			return fmt.Errorf("recording backup in database: %w", err)
+		}
 	}
 
 	s.logger.Info("file backed up", "path", relativePath)

@@ -19,14 +19,16 @@ type BackupOperation struct {
 }
 
 type Content struct {
-	ID        string    `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                 string         `json:"id"`
+	CreatedAt          time.Time      `json:"created_at"`
+	EncryptedContentID sql.NullString `json:"encrypted_content_id"`
 }
 
 type Directory struct {
 	ID        string    `json:"id"`
 	Path      string    `json:"path"`
 	CreatedAt time.Time `json:"created_at"`
+	Encrypted int64     `json:"encrypted"`
 }
 
 type File struct {

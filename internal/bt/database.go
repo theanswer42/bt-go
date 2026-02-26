@@ -17,7 +17,11 @@ type Database interface {
 
 	// CreateDirectory creates a new tracked directory.
 	// If there are existing child directories, moves their files and deletes them.
-	CreateDirectory(path string) (*sqlc.Directory, error)
+	// encrypted marks whether files in this directory should be encrypted on backup.
+	CreateDirectory(path string, encrypted bool) (*sqlc.Directory, error)
+
+	// FindDirectoryByID returns a directory by its ID, or nil if not found.
+	FindDirectoryByID(id string) (*sqlc.Directory, error)
 
 	// FindDirectoriesByPathPrefix returns all directories whose path starts with the given prefix.
 	FindDirectoriesByPathPrefix(pathPrefix string) ([]*sqlc.Directory, error)
@@ -51,7 +55,10 @@ type Database interface {
 	// finds or creates the file record, creates content (if needed),
 	// compares against the file's current snapshot, and creates a new
 	// snapshot + updates the pointer if anything changed.
-	CreateFileSnapshotAndContent(directoryID string, relativePath string, snapshot *sqlc.FileSnapshot) error
+	// encryptedContentID, when non-empty, means the file is encrypted: it creates
+	// both the real content record (encryptedContentID) and the virtual plaintext
+	// record (snapshot.ContentID → encryptedContentID).
+	CreateFileSnapshotAndContent(directoryID string, relativePath string, snapshot *sqlc.FileSnapshot, encryptedContentID string) error
 
 	// UpdateFileCurrentSnapshot updates the current snapshot pointer for a file.
 	UpdateFileCurrentSnapshot(file *sqlc.File, snapshotID string) error
@@ -59,7 +66,9 @@ type Database interface {
 	// Content operations
 
 	// CreateContent records that content with the given checksum exists in the vault.
-	CreateContent(checksum string) (*sqlc.Content, error)
+	// encryptedContentID, when non-empty, links this plaintext record to its
+	// encrypted counterpart stored in the vault.
+	CreateContent(checksum string, encryptedContentID string) (*sqlc.Content, error)
 
 	// FindContentByChecksum returns content metadata by checksum.
 	FindContentByChecksum(checksum string) (*sqlc.Content, error)

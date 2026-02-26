@@ -121,14 +121,14 @@ func TestMemoryVault_PutAndGetMetadata(t *testing.T) {
 
 	// Put metadata
 	r := strings.NewReader(metadata)
-	err := vault.PutMetadata(hostID, r, int64(len(metadata)), 1)
+	err := vault.PutMetadata(hostID, "db", r, int64(len(metadata)), 1)
 	if err != nil {
 		t.Fatalf("PutMetadata() error: %v", err)
 	}
 
 	// Get metadata
 	var buf bytes.Buffer
-	err = vault.GetMetadata(hostID, &buf)
+	err = vault.GetMetadata(hostID, "db", &buf)
 	if err != nil {
 		t.Fatalf("GetMetadata() error: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestMemoryVault_GetMetadataNotFound(t *testing.T) {
 	vault := NewMemoryVault("test-vault")
 
 	var buf bytes.Buffer
-	err := vault.GetMetadata("nonexistent-host", &buf)
+	err := vault.GetMetadata("nonexistent-host", "db", &buf)
 	if err == nil {
 		t.Error("GetMetadata() expected error for nonexistent host, got nil")
 	}
@@ -152,7 +152,7 @@ func TestMemoryVault_GetMetadataVersion(t *testing.T) {
 	v := NewMemoryVault("test-vault")
 
 	t.Run("returns 0 when no metadata exists", func(t *testing.T) {
-		version, err := v.GetMetadataVersion("nonexistent")
+		version, err := v.GetMetadataVersion("nonexistent", "db")
 		if err != nil {
 			t.Fatalf("GetMetadataVersion() error = %v", err)
 		}
@@ -163,11 +163,11 @@ func TestMemoryVault_GetMetadataVersion(t *testing.T) {
 
 	t.Run("returns version after PutMetadata", func(t *testing.T) {
 		data := "metadata"
-		if err := v.PutMetadata("host-1", strings.NewReader(data), int64(len(data)), 7); err != nil {
+		if err := v.PutMetadata("host-1", "db", strings.NewReader(data), int64(len(data)), 7); err != nil {
 			t.Fatalf("PutMetadata() error = %v", err)
 		}
 
-		version, err := v.GetMetadataVersion("host-1")
+		version, err := v.GetMetadataVersion("host-1", "db")
 		if err != nil {
 			t.Fatalf("GetMetadataVersion() error = %v", err)
 		}

@@ -1,12 +1,4 @@
 # TODO Items, in order of importance
-## Full test with FSVault
-Build a suite of sorts of manual integration tests.
-
-## S3Vault
-
-## Full test with S3Vault
-
-## bt config init
 
 ## Encryption
 Enable encryption at the directory level. If enabled, everything in
@@ -16,6 +8,16 @@ Before we do this, we'll need a general investigation into how to
 implement encryption in a "safe" way (not just safe as in secure, but
 also safe as in, I should not lose my entire backup because I forgot
 something).
+
+## Full test with FSVault
+Build a suite of sorts of manual integration tests.
+
+## S3Vault
+
+## Full test with S3Vault
+
+## bt config init
+
 
 ## Daemon design
 Let's create a design for how to implement the bt-daemon. Include:
