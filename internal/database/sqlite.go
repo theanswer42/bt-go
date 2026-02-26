@@ -165,6 +165,7 @@ func (s *SQLiteDatabase) CreateDirectory(path string) (*sqlc.Directory, error) {
 		ID:        s.newIDFn(),
 		Path:      path,
 		CreatedAt: s.nowFn(),
+		Encrypted: 0,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("inserting directory: %w", err)
@@ -390,8 +391,9 @@ func (s *SQLiteDatabase) CreateFileSnapshotAndContent(directoryID string, relati
 	_, err = qtx.GetContentByID(ctx, snapshot.ContentID)
 	if errors.Is(err, sql.ErrNoRows) {
 		_, err = qtx.InsertContent(ctx, sqlc.InsertContentParams{
-			ID:        snapshot.ContentID,
-			CreatedAt: s.nowFn(),
+			ID:                 snapshot.ContentID,
+			CreatedAt:          s.nowFn(),
+			EncryptedContentID: sql.NullString{},
 		})
 		if err != nil {
 			return fmt.Errorf("creating content: %w", err)
@@ -515,8 +517,9 @@ func (s *SQLiteDatabase) MaxBackupOperationID() (int64, error) {
 
 func (s *SQLiteDatabase) CreateContent(checksum string) (*sqlc.Content, error) {
 	content, err := s.queries.InsertContent(context.Background(), sqlc.InsertContentParams{
-		ID:        checksum,
-		CreatedAt: s.nowFn(),
+		ID:                 checksum,
+		CreatedAt:          s.nowFn(),
+		EncryptedContentID: sql.NullString{},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating content: %w", err)

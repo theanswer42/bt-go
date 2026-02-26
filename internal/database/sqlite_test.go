@@ -349,6 +349,7 @@ func TestSQLiteDatabase_SearchDirectoryForPath(t *testing.T) {
 			ID:        "child-id",
 			Path:      "/home/user/docs/subdir",
 			CreatedAt: time.Now(),
+			Encrypted: 0,
 		})
 
 		found, err := db.SearchDirectoryForPath("/home/user/docs/subdir/file.txt")

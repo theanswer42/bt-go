@@ -11,8 +11,8 @@ SELECT * FROM directories WHERE path = ? LIMIT 1;
 SELECT * FROM directories WHERE path LIKE ?1 ORDER BY path;
 
 -- name: InsertDirectory :one
-INSERT INTO directories (id, path, created_at)
-VALUES (?, ?, ?)
+INSERT INTO directories (id, path, created_at, encrypted)
+VALUES (?, ?, ?, ?)
 RETURNING *;
 
 -- name: DeleteDirectoryByID :exec
@@ -62,8 +62,8 @@ RETURNING *;
 SELECT * FROM contents WHERE id = ? LIMIT 1;
 
 -- name: InsertContent :one
-INSERT INTO contents (id, created_at)
-VALUES (?, ?)
+INSERT INTO contents (id, created_at, encrypted_content_id)
+VALUES (?, ?, ?)
 RETURNING *;
 
 -- Backup operation queries
