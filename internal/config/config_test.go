@@ -15,6 +15,10 @@ func TestManager_ReadWrite_RoundTrip(t *testing.T) {
 		Vaults: []VaultConfig{
 			{Type: "filesystem", Name: "local", FSVaultRoot: "/backup/vault"},
 		},
+		Encryption: EncryptionConfig{
+			PublicKeyPath:  "/home/user/.local/share/bt/keys/bt.pub",
+			PrivateKeyPath: "/home/user/.local/share/bt/keys/bt.key",
+		},
 		Database: DatabaseConfig{Type: "sqlite", DataDir: "/home/user/.local/share/bt/db"},
 		Staging:  StagingConfig{Type: "memory", MaxSize: 2048},
 		Filesystem: FilesystemConfig{
@@ -52,6 +56,12 @@ func TestManager_ReadWrite_RoundTrip(t *testing.T) {
 	if got.Vaults[0].FSVaultRoot != "/backup/vault" {
 		t.Errorf("Vault.FSVaultRoot = %q, want %q", got.Vaults[0].FSVaultRoot, "/backup/vault")
 	}
+	if got.Encryption.PublicKeyPath != original.Encryption.PublicKeyPath {
+		t.Errorf("Encryption.PublicKeyPath = %q, want %q", got.Encryption.PublicKeyPath, original.Encryption.PublicKeyPath)
+	}
+	if got.Encryption.PrivateKeyPath != original.Encryption.PrivateKeyPath {
+		t.Errorf("Encryption.PrivateKeyPath = %q, want %q", got.Encryption.PrivateKeyPath, original.Encryption.PrivateKeyPath)
+	}
 	if got.Database.Type != "sqlite" {
 		t.Errorf("Database.Type = %q, want %q", got.Database.Type, "sqlite")
 	}
@@ -74,6 +84,12 @@ func TestNewConfig(t *testing.T) {
 	}
 	if cfg.LogDir != "/data/bt/log" {
 		t.Errorf("LogDir = %q, want %q", cfg.LogDir, "/data/bt/log")
+	}
+	if cfg.Encryption.PublicKeyPath != "/data/bt/keys/bt.pub" {
+		t.Errorf("Encryption.PublicKeyPath = %q, want %q", cfg.Encryption.PublicKeyPath, "/data/bt/keys/bt.pub")
+	}
+	if cfg.Encryption.PrivateKeyPath != "/data/bt/keys/bt.key" {
+		t.Errorf("Encryption.PrivateKeyPath = %q, want %q", cfg.Encryption.PrivateKeyPath, "/data/bt/keys/bt.key")
 	}
 }
 

@@ -15,9 +15,16 @@ type Config struct {
 	BaseDir    string           `toml:"base_dir"`
 	LogDir     string           `toml:"log_dir"`
 	Vaults     []VaultConfig    `toml:"vaults"`
+	Encryption EncryptionConfig `toml:"encryption"`
 	Database   DatabaseConfig   `toml:"database"`
 	Staging    StagingConfig    `toml:"staging"`
 	Filesystem FilesystemConfig `toml:"filesystem"`
+}
+
+// EncryptionConfig holds paths to the age key pair used for encryption.
+type EncryptionConfig struct {
+	PublicKeyPath  string `toml:"public_key_path"`
+	PrivateKeyPath string `toml:"private_key_path"`
 }
 
 // FilesystemConfig holds filesystem-related settings.
@@ -55,12 +62,16 @@ type StagingConfig struct {
 	MaxSize    int64  `toml:"max_size"`              // max total size in bytes; must be positive, defaults to 1MB
 }
 
-// NewConfig creates a new Config with the provided values.
+// NewConfig creates a new Config with the provided values and default key paths.
 func NewConfig(hostID, baseDir string) *Config {
 	return &Config{
 		HostID:  hostID,
 		BaseDir: baseDir,
 		LogDir:  filepath.Join(baseDir, "log"),
+		Encryption: EncryptionConfig{
+			PublicKeyPath:  filepath.Join(baseDir, "keys", "bt.pub"),
+			PrivateKeyPath: filepath.Join(baseDir, "keys", "bt.key"),
+		},
 	}
 }
 
