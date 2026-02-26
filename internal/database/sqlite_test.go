@@ -459,7 +459,7 @@ func TestSQLiteDatabase_CreateFileSnapshotAndContent(t *testing.T) {
 		dir, _ := db.CreateDirectory("/home/user/docs", false)
 
 		snap := makeSnapshot("abc123checksum")
-		err := db.CreateFileSnapshotAndContent(dir.ID, "newfile.txt", snap)
+		err := db.CreateFileSnapshotAndContent(dir.ID, "newfile.txt", snap, "")
 		if err != nil {
 			t.Fatalf("CreateFileSnapshotAndContent() error = %v", err)
 		}
@@ -491,7 +491,7 @@ func TestSQLiteDatabase_CreateFileSnapshotAndContent(t *testing.T) {
 		dir, _ := db.CreateDirectory("/home/user/docs", false)
 
 		snap1 := makeSnapshot("checksum1")
-		if err := db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap1); err != nil {
+		if err := db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap1, ""); err != nil {
 			t.Fatalf("first call error = %v", err)
 		}
 
@@ -509,7 +509,7 @@ func TestSQLiteDatabase_CreateFileSnapshotAndContent(t *testing.T) {
 		snap2.ChangedAt = snap1.ChangedAt
 		snap2.BornAt = snap1.BornAt
 
-		if err := db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap2); err != nil {
+		if err := db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap2, ""); err != nil {
 			t.Fatalf("second call error = %v", err)
 		}
 
@@ -525,13 +525,13 @@ func TestSQLiteDatabase_CreateFileSnapshotAndContent(t *testing.T) {
 		dir, _ := db.CreateDirectory("/home/user/docs", false)
 
 		snap1 := makeSnapshot("checksum-v1")
-		db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap1)
+		db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap1, "")
 
 		file, _ := db.FindFileByPath(dir, "file.txt")
 		firstSnapshotID := file.CurrentSnapshotID.String
 
 		snap2 := makeSnapshot("checksum-v2")
-		db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap2)
+		db.CreateFileSnapshotAndContent(dir.ID, "file.txt", snap2, "")
 
 		file, _ = db.FindFileByPath(dir, "file.txt")
 		if file.CurrentSnapshotID.String == firstSnapshotID {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"bt-go/internal/app"
+	"bt-go/internal/bt"
 	"bt-go/internal/config"
 	"bt-go/internal/encryption"
 
@@ -391,7 +392,23 @@ var restoreCmd = &cobra.Command{
 			checksum = args[1]
 		}
 
-		paths, err := a.RestoreFiles(args[0], checksum)
+		// Prompt for passphrase once if encryption keys are present.
+		// The decryption context is reused for all files in this restore.
+		var decryptCtx bt.DecryptionContext
+		if a.EncryptionConfigured() {
+			fmt.Print("Enter passphrase for decryption: ")
+			passphrase, err := term.ReadPassword(int(os.Stdin.Fd()))
+			fmt.Println()
+			if err != nil {
+				return fmt.Errorf("reading passphrase: %w", err)
+			}
+			decryptCtx, err = a.UnlockEncryption(string(passphrase))
+			if err != nil {
+				return fmt.Errorf("unlocking encryption: %w", err)
+			}
+		}
+
+		paths, err := a.RestoreFiles(args[0], checksum, decryptCtx)
 		if err != nil {
 			return err
 		}

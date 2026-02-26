@@ -7,6 +7,9 @@
 -- name: GetDirectoryByPath :one
 SELECT * FROM directories WHERE path = ? LIMIT 1;
 
+-- name: GetDirectoryByID :one
+SELECT * FROM directories WHERE id = ? LIMIT 1;
+
 -- name: GetDirectoriesByPathPrefix :many
 SELECT * FROM directories WHERE path LIKE ?1 ORDER BY path;
 

@@ -95,6 +95,17 @@ func OpenConnection(path string) (*sql.DB, error) {
 
 // Directory operations
 
+func (s *SQLiteDatabase) FindDirectoryByID(id string) (*sqlc.Directory, error) {
+	dir, err := s.queries.GetDirectoryByID(context.Background(), id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // Not found
+		}
+		return nil, fmt.Errorf("finding directory by ID: %w", err)
+	}
+	return &dir, nil
+}
+
 func (s *SQLiteDatabase) FindDirectoryByPath(path string) (*sqlc.Directory, error) {
 	dir, err := s.queries.GetDirectoryByPath(context.Background(), path)
 	if err != nil {
@@ -356,11 +367,15 @@ func (s *SQLiteDatabase) UpdateFileCurrentSnapshot(file *sqlc.File, snapshotID s
 
 // CreateFileSnapshotAndContent atomically records a backup in a single transaction:
 // 1. Finds or creates the file record for the given directory + relative path.
-// 2. Creates the content record if it doesn't already exist.
+// 2. Creates the content record(s) if they don't already exist.
+//    - Unencrypted: creates Content(ID=plaintext_checksum).
+//    - Encrypted (encryptedContentID != ""): creates Content(ID=encryptedContentID)
+//      as the real vault record, and Content(ID=plaintext_checksum, encrypted_content_id=encryptedContentID)
+//      as the virtual pointer record.
 // 3. Compares against the file's current snapshot — if all relevant fields match,
 //    this is a no-op (the file hasn't changed).
 // 4. Otherwise creates a new snapshot and updates the file's current snapshot pointer.
-func (s *SQLiteDatabase) CreateFileSnapshotAndContent(directoryID string, relativePath string, snapshot *sqlc.FileSnapshot) error {
+func (s *SQLiteDatabase) CreateFileSnapshotAndContent(directoryID string, relativePath string, snapshot *sqlc.FileSnapshot, encryptedContentID string) error {
 	ctx := context.Background()
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -391,19 +406,51 @@ func (s *SQLiteDatabase) CreateFileSnapshotAndContent(directoryID string, relati
 		return fmt.Errorf("finding file: %w", err)
 	}
 
-	// 2. Create content record if it doesn't exist.
-	_, err = qtx.GetContentByID(ctx, snapshot.ContentID)
-	if errors.Is(err, sql.ErrNoRows) {
-		_, err = qtx.InsertContent(ctx, sqlc.InsertContentParams{
-			ID:                 snapshot.ContentID,
-			CreatedAt:          s.nowFn(),
-			EncryptedContentID: sql.NullString{},
-		})
-		if err != nil {
-			return fmt.Errorf("creating content: %w", err)
+	// 2. Create content record(s) if they don't exist.
+	if encryptedContentID != "" {
+		// Encrypted: create the real content record (encrypted bytes in vault).
+		_, err = qtx.GetContentByID(ctx, encryptedContentID)
+		if errors.Is(err, sql.ErrNoRows) {
+			_, err = qtx.InsertContent(ctx, sqlc.InsertContentParams{
+				ID:                 encryptedContentID,
+				CreatedAt:          s.nowFn(),
+				EncryptedContentID: sql.NullString{},
+			})
+			if err != nil {
+				return fmt.Errorf("creating encrypted content record: %w", err)
+			}
+		} else if err != nil {
+			return fmt.Errorf("checking for encrypted content: %w", err)
 		}
-	} else if err != nil {
-		return fmt.Errorf("checking for existing content: %w", err)
+		// Create the virtual plaintext record pointing to the encrypted one.
+		_, err = qtx.GetContentByID(ctx, snapshot.ContentID)
+		if errors.Is(err, sql.ErrNoRows) {
+			_, err = qtx.InsertContent(ctx, sqlc.InsertContentParams{
+				ID:                 snapshot.ContentID,
+				CreatedAt:          s.nowFn(),
+				EncryptedContentID: sql.NullString{String: encryptedContentID, Valid: true},
+			})
+			if err != nil {
+				return fmt.Errorf("creating virtual plaintext content record: %w", err)
+			}
+		} else if err != nil {
+			return fmt.Errorf("checking for plaintext content: %w", err)
+		}
+	} else {
+		// Unencrypted: create a single content record.
+		_, err = qtx.GetContentByID(ctx, snapshot.ContentID)
+		if errors.Is(err, sql.ErrNoRows) {
+			_, err = qtx.InsertContent(ctx, sqlc.InsertContentParams{
+				ID:                 snapshot.ContentID,
+				CreatedAt:          s.nowFn(),
+				EncryptedContentID: sql.NullString{},
+			})
+			if err != nil {
+				return fmt.Errorf("creating content: %w", err)
+			}
+		} else if err != nil {
+			return fmt.Errorf("checking for existing content: %w", err)
+		}
 	}
 
 	// 3. Check the file's current snapshot. If it matches, nothing changed — skip.
@@ -519,11 +566,11 @@ func (s *SQLiteDatabase) MaxBackupOperationID() (int64, error) {
 
 // Content operations
 
-func (s *SQLiteDatabase) CreateContent(checksum string) (*sqlc.Content, error) {
+func (s *SQLiteDatabase) CreateContent(checksum string, encryptedContentID string) (*sqlc.Content, error) {
 	content, err := s.queries.InsertContent(context.Background(), sqlc.InsertContentParams{
 		ID:                 checksum,
 		CreatedAt:          s.nowFn(),
-		EncryptedContentID: sql.NullString{},
+		EncryptedContentID: sql.NullString{String: encryptedContentID, Valid: encryptedContentID != ""},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating content: %w", err)

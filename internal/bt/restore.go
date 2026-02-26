@@ -1,6 +1,7 @@
 package bt
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
 	"os"
@@ -13,8 +14,10 @@ import (
 // If absPath matches a tracked directory exactly, all files in that directory are restored.
 // Providing a checksum with a directory path is an error.
 // Otherwise, absPath is treated as a file path and the specified (or current) version is restored.
+// decryptCtx is required when any of the files to restore are encrypted; pass nil for
+// unencrypted restores. If a file is encrypted and decryptCtx is nil, an error is returned.
 // Returns the list of output file paths written.
-func (s *BTService) Restore(absPath string, checksum string) ([]string, error) {
+func (s *BTService) Restore(absPath string, checksum string, decryptCtx DecryptionContext) ([]string, error) {
 	s.logger.Info("restore started", "path", absPath)
 
 	// Check if absPath matches a tracked directory exactly.
@@ -27,11 +30,11 @@ func (s *BTService) Restore(absPath string, checksum string) ([]string, error) {
 		if checksum != "" {
 			return nil, fmt.Errorf("cannot restore a directory with a specific checksum")
 		}
-		return s.restoreDirectory(dir)
+		return s.restoreDirectory(dir, decryptCtx)
 	}
 
 	// Treat as a file path.
-	outPath, err := s.restoreFile(absPath, checksum)
+	outPath, err := s.restoreFile(absPath, checksum, decryptCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +42,7 @@ func (s *BTService) Restore(absPath string, checksum string) ([]string, error) {
 }
 
 // restoreFile restores a single file from the vault.
-func (s *BTService) restoreFile(absPath string, checksum string) (string, error) {
+func (s *BTService) restoreFile(absPath string, checksum string, decryptCtx DecryptionContext) (string, error) {
 	directory, err := s.database.SearchDirectoryForPath(absPath)
 	if err != nil {
 		return "", fmt.Errorf("searching for directory: %w", err)
@@ -66,7 +69,7 @@ func (s *BTService) restoreFile(absPath string, checksum string) (string, error)
 		return "", err
 	}
 
-	return s.restoreOneFile(directory, relativePath, snapshot)
+	return s.restoreOneFile(directory, relativePath, snapshot, decryptCtx)
 }
 
 // resolveSnapshot finds the appropriate snapshot for restore.
@@ -103,7 +106,7 @@ func (s *BTService) resolveSnapshot(file *sqlc.File, checksum string) (*sqlc.Fil
 }
 
 // restoreDirectory restores all files in a tracked directory.
-func (s *BTService) restoreDirectory(dir *sqlc.Directory) ([]string, error) {
+func (s *BTService) restoreDirectory(dir *sqlc.Directory, decryptCtx DecryptionContext) ([]string, error) {
 	files, err := s.database.FindFilesByDirectory(dir)
 	if err != nil {
 		return nil, fmt.Errorf("finding files: %w", err)
@@ -120,7 +123,7 @@ func (s *BTService) restoreDirectory(dir *sqlc.Directory) ([]string, error) {
 			return restored, fmt.Errorf("resolving snapshot for %s: %w", file.Name, err)
 		}
 
-		outPath, err := s.restoreOneFile(dir, file.Name, snapshot)
+		outPath, err := s.restoreOneFile(dir, file.Name, snapshot, decryptCtx)
 		if err != nil {
 			return restored, fmt.Errorf("restoring %s: %w", file.Name, err)
 		}
@@ -132,7 +135,10 @@ func (s *BTService) restoreDirectory(dir *sqlc.Directory) ([]string, error) {
 
 // restoreOneFile writes a single file from the vault to disk.
 // The output path is {dir}/{basename}.{checksum[:12]}.btrestored.
-func (s *BTService) restoreOneFile(dir *sqlc.Directory, relativePath string, snapshot *sqlc.FileSnapshot) (string, error) {
+// If the content is encrypted and decryptCtx is non-nil, the ciphertext is
+// fetched by its encrypted checksum and decrypted before writing. If the
+// content is encrypted and decryptCtx is nil, an error is returned.
+func (s *BTService) restoreOneFile(dir *sqlc.Directory, relativePath string, snapshot *sqlc.FileSnapshot, decryptCtx DecryptionContext) (string, error) {
 	outPath := buildRestorePath(dir.Path, relativePath, snapshot.ContentID)
 
 	// Ensure parent directory exists.
@@ -151,9 +157,38 @@ func (s *BTService) restoreOneFile(dir *sqlc.Directory, relativePath string, sna
 	}
 	defer f.Close()
 
-	if err := s.vault.GetContent(snapshot.ContentID, f); err != nil {
+	// Look up the content record to determine if it's encrypted.
+	content, err := s.database.FindContentByChecksum(snapshot.ContentID)
+	if err != nil {
 		os.Remove(outPath)
-		return "", fmt.Errorf("retrieving content from vault: %w", err)
+		return "", fmt.Errorf("finding content record: %w", err)
+	}
+	if content == nil {
+		os.Remove(outPath)
+		return "", fmt.Errorf("content not found for checksum: %s", snapshot.ContentID)
+	}
+
+	if content.EncryptedContentID.Valid {
+		// Encrypted: fetch ciphertext by the encrypted checksum, then decrypt.
+		if decryptCtx == nil {
+			os.Remove(outPath)
+			return "", fmt.Errorf("content is encrypted but no passphrase was provided")
+		}
+		var encBuf bytes.Buffer
+		if err := s.vault.GetContent(content.EncryptedContentID.String, &encBuf); err != nil {
+			os.Remove(outPath)
+			return "", fmt.Errorf("retrieving encrypted content from vault: %w", err)
+		}
+		if err := decryptCtx.Decrypt(&encBuf, f); err != nil {
+			os.Remove(outPath)
+			return "", fmt.Errorf("decrypting content: %w", err)
+		}
+	} else {
+		// Unencrypted: write plaintext directly from vault.
+		if err := s.vault.GetContent(snapshot.ContentID, f); err != nil {
+			os.Remove(outPath)
+			return "", fmt.Errorf("retrieving content from vault: %w", err)
+		}
 	}
 
 	// Restore metadata.

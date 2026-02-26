@@ -14,6 +14,7 @@ type Querier interface {
 	// Content queries
 	GetContentByID(ctx context.Context, id string) (Content, error)
 	GetDirectoriesByPathPrefix(ctx context.Context, path string) ([]Directory, error)
+	GetDirectoryByID(ctx context.Context, id string) (Directory, error)
 	// SQL queries for bt database operations
 	// sqlc will generate type-safe Go code from these queries
 	// See: https://docs.sqlc.dev/en/latest/

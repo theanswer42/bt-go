@@ -99,6 +99,22 @@ func (q *Queries) GetDirectoriesByPathPrefix(ctx context.Context, path string) (
 	return items, nil
 }
 
+const getDirectoryByID = `-- name: GetDirectoryByID :one
+SELECT id, path, created_at, encrypted FROM directories WHERE id = ? LIMIT 1
+`
+
+func (q *Queries) GetDirectoryByID(ctx context.Context, id string) (Directory, error) {
+	row := q.db.QueryRowContext(ctx, getDirectoryByID, id)
+	var i Directory
+	err := row.Scan(
+		&i.ID,
+		&i.Path,
+		&i.CreatedAt,
+		&i.Encrypted,
+	)
+	return i, err
+}
+
 const getDirectoryByPath = `-- name: GetDirectoryByPath :one
 
 
