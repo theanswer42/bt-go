@@ -7,7 +7,7 @@
 - Enable backing up user-selected directories to remote storage
 - Support file versioning with ability to view history and restore specific versions
 - Use content-addressable storage for automatic deduplication across hosts
-- Design with future encryption support in mind
+- Encrypt content and metadata before storing in the vault (per-directory opt-in for content, always-on for metadata)
 - Maintain simplicity while ensuring reliability for real-world personal use
 
 ### Non-Goals
@@ -35,6 +35,9 @@ provides:
 - Local filesystem (for testing)
 - AWS S3 or S3-compatible storage (primary use case)
 
+### Encryption
+- `filippo.io/age` — X25519 key pairs, ChaCha20-Poly1305 symmetric encryption, Argon2id KDF for passphrase-protected private keys. Chosen for its simplicity, auditability, and native Go streaming support.
+
 ### Host System Requirements
 The backup tool requires the following from the host system:
 - File system access with ability to read file metadata (permissions, timestamps, etc.)
@@ -57,6 +60,10 @@ The backup tool requires the following from the host system:
 3. **Metadata Versioning**: Strategy for keeping multiple versions of metadata in vault is implementation-dependent
    - May rely on cloud provider features (S3 versioning)
    - Recovery scenarios if metadata corruption occurs need consideration
+
+4. **Key Loss**: Loss of the encryption key pair means permanent data loss for all encrypted content. Keys are backed up to the vault as metadata, but if the vault itself is lost, encrypted content is irrecoverable.
+
+5. **Forgotten Passphrase**: The private key is protected by a passphrase (Argon2id + age). A forgotten passphrase makes all encrypted backups irrecoverable — there is no recovery mechanism by design.
 
 ### Open Questions
 1. **File Watcher Implementation**: How to efficiently detect and stage changed files using file watchers
@@ -84,6 +91,9 @@ The backup tool provides a command-line interface (CLI) called `bt`.
 bt config init
 ```
 Creates configuration file in `~/.config/bt.toml`.
+Also prompts for a passphrase and generates an X25519 key pair:
+- Public key stored in plaintext at `$BT_BASE_DIR/keys/bt.pub`
+- Private key encrypted with passphrase (Argon2id + age) at `$BT_BASE_DIR/keys/bt.key`
 
 #### View Configuration
 ```bash
@@ -103,11 +113,14 @@ Performs any necessary setup on the vault (e.g., creating bucket structure, veri
 
 #### Track a Directory
 ```bash
-bt dir init
+bt dir init [--encrypted]
 ```
 - Must be run within the directory to track.
 - Marks this directory for backup (does not perform any actual backup
   operations)
+- `--encrypted`: enables encryption for this directory. Files backed
+  up from this directory will be encrypted before being stored in the
+  vault.
 
 ### Backup Operations
 
@@ -174,6 +187,7 @@ itself, enabling content-addressable storage.
 Content:
 - id: checksum (SHA-256 or similar) - not a UUID
 - created_at: timestamp (for bookkeeping)
+- encrypted_content_id: checksum (nullable, FK to another Content record)
 
 The actual content is stored in the configured vault. A content object
 should only be created *after* that content has been successfully
@@ -184,14 +198,42 @@ The ID is the content's own checksum, enabling:
 - Automatic deduplication across all hosts
 - Integrity verification
 
+**Encryption indirection:**
+When `encrypted_content_id` is set, this Content record is "virtual"
+— the vault does not store data under this ID. Instead, the actual
+bytes live at the Content record pointed to by `encrypted_content_id`.
+When `encrypted_content_id` is null, this Content is "real" — the
+vault stores data directly under this ID.
+
+Example: a file with plaintext checksum ABC is encrypted to produce
+ciphertext with checksum DEF.
+- Content(ID=ABC, encrypted_content_id=DEF) — virtual, for dedup
+- Content(ID=DEF, encrypted_content_id=null) — real, stored in vault
+- FileSnapshot.ContentID = ABC (always points to plaintext checksum)
+
+Restore follows the chain: snapshot → virtual content (ABC) →
+encrypted content (DEF) → vault → decrypt → plaintext.
+
+Schema migration:
+```sql
+ALTER TABLE content ADD COLUMN encrypted_content_id TEXT REFERENCES content(id);
+```
+
 ### Directory
 Directory:
 - id: UUID
 - path: absolute path on host
 - created_at: timestamp
+- encrypted: boolean (default false)
 
 Represents a directory tracked for backup. Created when `bt dir init`
-is run.
+is run. When `encrypted` is true, files in this directory are
+encrypted before being stored in the vault.
+
+Schema migration:
+```sql
+ALTER TABLE directories ADD COLUMN encrypted INTEGER NOT NULL DEFAULT 0;
+```
 
 ### File
 
@@ -260,10 +302,17 @@ class Config:
 
   vaults: List[VaultConfig] # Configured vaults
 
+  encryption_config: EncryptionConfig
+
   dbconfig: DatabaseConfig
   stage_config: StagingConfig
   fsmgr_config: FsManagerConfig
 
+
+@dataclass
+class EncryptionConfig:
+  public_key_path: Path   # defaults to $BT_BASE_DIR/keys/bt.pub
+  private_key_path: Path  # defaults to $BT_BASE_DIR/keys/bt.key (passphrase-encrypted)
 
 @dataclass
 class DatabaseConfig:
@@ -336,9 +385,9 @@ class Vault:
     def __init__(self, config: VaultConfig):...
     def put_content(self, checksum: str, source_path: Path) -> bool:...
     def get_content(self, checksum: str, output_path: Path) -> bool:...
-    def put_metadata(self, source_path: Path, version: int) -> bool:...
-    def get_metadata(self, output_path: Path) -> bool:...
-    def get_metadata_version(self) -> int:...
+    def put_metadata(self, name: str, source_path: Path, version: int) -> bool:...
+    def get_metadata(self, name: str, output_path: Path) -> bool:...
+    def get_metadata_version(self, name: str) -> int:...
     def validate_setup(self) -> bool:...
 ```
 
@@ -351,6 +400,21 @@ class FileSystemVault(Vault):
 class S3Vault(Vault):
     def __init__(self, config: S3VaultConfig):...
 
+```
+
+**Metadata naming convention:**
+The `name` parameter to metadata methods identifies the metadata item.
+Known names:
+- `"db"` — the SQLite metadata database (always encrypted before upload)
+- `"public_key"` — the age public key (plaintext)
+- `"private_key"` — the age private key (passphrase-encrypted)
+
+Key files are stored with a fixed version (immutable after initial setup).
+
+**FileSystemVault metadata layout:**
+```
+<vault_root>/metadata/<hostID>/<name>          # metadata file
+<vault_root>/metadata/<hostID>/<name>.version  # version number
 ```
 
 ### Metadata Store
@@ -414,6 +478,84 @@ class FilesystemManager:
 
 ```
 
+### Encryptor
+
+Handles encryption of content files and unlocking for decryption.
+Encryption uses the public key only — no user intervention required.
+Decryption requires the user's passphrase to unlock the private key,
+which produces a DecryptionContext for the session.
+
+The Encryptor itself is stateless — it never holds an unlocked
+private key. All file operations use paths to avoid loading large
+files into memory, consistent with the Vault interface pattern. age
+supports streaming encryption/decryption natively.
+
+```python
+class Encryptor:
+    def __init__(self, config: EncryptionConfig): ...
+
+    def setup(self, passphrase: str) -> bool:
+        """
+        One-time key generation. Called during `bt config init`.
+        - Generates X25519 key pair
+        - Stores public key in plaintext at config.public_key_path
+        - Encrypts private key with passphrase (Argon2id + age
+          passphrase encryption)
+        - Stores encrypted private key at config.private_key_path
+        - Argon2id parameters should be set to high memory/iteration
+          counts. Both keys are stored in the vault, so the KDF is
+          the only barrier to offline brute-force by anyone with
+          vault access.
+        """
+        ...
+
+    def encrypt(self, input_path: Path, output_path: Path) -> bool:
+        """
+        Encrypts file at input_path, writes ciphertext to output_path.
+        Uses public key only — no passphrase required.
+        Caller is responsible for computing checksum of output_path
+        (for the encrypted Content record).
+        """
+        ...
+
+    def unlock(self, passphrase: str) -> DecryptionContext:
+        """
+        Unlocks the private key and returns a DecryptionContext.
+        Raises if passphrase is incorrect.
+        The caller owns the lifecycle of the returned context.
+        """
+        ...
+
+    def is_configured(self) -> bool:
+        """
+        Returns True if public and private key files exist at
+        configured paths.
+        """
+        ...
+```
+
+### DecryptionContext
+
+Holds an unlocked private key in memory for the duration of a
+restore session. Created by `Encryptor.unlock()`. The unlocked key
+is held in memory only and never written to disk. The caller
+controls the lifecycle of this object.
+
+```python
+class DecryptionContext:
+    def decrypt(self, input_path: Path, output_path: Path) -> bool:
+        """
+        Decrypts file at input_path, writes plaintext to output_path.
+        """
+        ...
+```
+
+**Go implementation notes:**
+- `age.GenerateX25519Identity()` for key generation
+- `age.Encrypt(dst, recipient)` for encryption
+- `age.Decrypt(src, identity)` for decryption
+- age passphrase-based encryption for private key storage
+
 ### BtService
 This is the orchestration layer that uses various services to perform
 high level operations needed by the CLI.
@@ -433,6 +575,7 @@ class BtService:
             staging_area:StagingArea,
             database = Database,
             vaults = [Vault],
+            encryptor = Encryptor,
         ):...
 
     def add_directory(self, path: Path) -> bool:
@@ -478,9 +621,64 @@ class BtService:
         # Returns the list of output file paths written.
         ...
 
-    def back_up_staged_file(self, file: File, file_snapshot: FileSnapshot, staged_file_path: Path) -> bool:...
+    def back_up_staged_file(self, file: File, file_snapshot: FileSnapshot, staged_file_path: Path) -> bool:
+        """
+        Backup flow for encrypted directories:
+        1. Staging produces plaintext file with checksum ABC.
+        2. Check if Content(ABC) already exists — if so, skip (dedup).
+        3. Encrypt staged file → temp file, compute checksum DEF.
+        4. Create Content(ID=DEF) — real, stored in vault.
+        5. Create Content(ID=ABC, encrypted_content_id=DEF) — virtual.
+        6. vault.put_content(DEF, encrypted_temp_file).
+        7. FileSnapshot.ContentID = ABC.
+
+        For unencrypted directories, the existing flow is unchanged:
+        content is stored directly under its plaintext checksum.
+        """
+        ...
 
     def back_up_all_staged_files(self) -> int:...
+
+    def restore_file(self, file: File, snapshot: FileSnapshot, output_path: Path, decryption_ctx: DecryptionContext = None) -> bool:
+        """
+        Restore flow for encrypted content:
+        1. Look up Content(ABC) → encrypted_content_id = DEF.
+        2. vault.get_content(DEF) → encrypted temp file.
+        3. decryption_ctx.decrypt(temp, output_path).
+
+        For unencrypted content (encrypted_content_id is null):
+        1. vault.get_content(ABC) → output_path directly.
+
+        The CLI must prompt for passphrase once before a restore
+        session and pass the DecryptionContext to all restore calls.
+        """
+        ...
+
+    def backup_metadata(self) -> bool:
+        """
+        Metadata backup flow:
+        1. Encrypt DB file using encryptor.encrypt.
+        2. vault.put_metadata("db", encrypted_db_path, version).
+        3. vault.put_metadata("public_key", pubkey_path, fixed_version).
+        4. vault.put_metadata("private_key", enckey_path, fixed_version).
+
+        Keys are stored with a fixed version (immutable after setup).
+        The DB is always encrypted before upload, regardless of
+        whether any directories use encryption.
+        """
+        ...
+
+    def restore_metadata(self, passphrase: str) -> bool:
+        """
+        Metadata restore flow (new host setup):
+        1. vault.get_metadata("public_key", ...) and
+           vault.get_metadata("private_key", ...).
+        2. Prompt for passphrase, unlock private key via
+           encryptor.unlock(passphrase).
+        3. vault.get_metadata("db", ...) → encrypted DB file.
+        4. Decrypt DB → usable metadata.
+        """
+        ...
 ```
 
 ### Multi-Host Coordination
@@ -498,10 +696,10 @@ class BtService:
 
 ### Future Considerations
 
-**Encryption:**
-- Keys managed locally per host
-- Encryption should add a layer below content (Content gets
-  encrypted_content_id maybe?)
+**Key Rotation:**
+- Mechanism to re-encrypt content with a new key pair
+- Requires decrypting all encrypted content and re-encrypting
+- Needs careful handling of the transition period
 
 **File Watching:**
 - Daemon could use inotify/FSEvents to detect changes
