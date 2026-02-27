@@ -1,23 +1,29 @@
 # TODO Items, in order of importance
 
-## Encryption
-Enable encryption at the directory level. If enabled, everything in
-that directory will be encrypted in the vault.
+## Code review - file access time usage for checking if file changed
+- **Issue: Snapshot Sensitivity to `atime`**. `snapshotsEqual` in `internal/database/sqlite.go` compares `AccessedAt`, which changes on file reads. This leads to redundant snapshots and backups.
+  - **Suggested Fix**: Update `snapshotsEqual` to exclude `AccessedAt` from the comparison. Focus on `ModifiedAt`, `Size`, and `ContentID`.
+- **Issue: Staging Queue Scalability**. `filesystemStore` uses a single `queue.json` file for the staging queue, which will become a bottleneck and performance risk as the number of staged items grows.
+  - **Suggested Fix**: Transition the staging queue to a more scalable format, such as an SQLite table or a line-delimited JSON (JSONL) file.
 
-Before we do this, we'll need a general investigation into how to
-implement encryption in a "safe" way (not just safe as in secure, but
-also safe as in, I should not lose my entire backup because I forgot
-something).
+## Code review Argon2id vs scrypt
+- **Issue: KDF Discrepancy**. `DESIGN.md` specifies `Argon2id` for private key protection, but `internal/encryption/age.go` uses `scrypt` (the `age` default).
+  - **Suggested Fix**: Either update `DESIGN.md` to reflect the use of `scrypt` or implement an `Argon2id` wrapper for the private key before passing it to `age`.
+
+## S3Vault
+Spec and build the S3Vault
+
+# Manual testing work
 
 ## Full test with FSVault
 Build a suite of sorts of manual integration tests.
-
-## S3Vault
 
 ## Full test with S3Vault
 
 ## bt config init
 
+
+# Future
 
 ## Daemon design
 Let's create a design for how to implement the bt-daemon. Include:

@@ -1,8 +1,8 @@
 package bt
 
 import (
-	"bytes"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -169,19 +169,26 @@ func (s *BTService) restoreOneFile(dir *sqlc.Directory, relativePath string, sna
 	}
 
 	if content.EncryptedContentID.Valid {
-		// Encrypted: fetch ciphertext by the encrypted checksum, then decrypt.
+		// Encrypted: pipe vault output directly to the decryptor — no intermediate buffer.
 		if decryptCtx == nil {
 			os.Remove(outPath)
 			return "", fmt.Errorf("content is encrypted but no passphrase was provided")
 		}
-		var encBuf bytes.Buffer
-		if err := s.vault.GetContent(content.EncryptedContentID.String, &encBuf); err != nil {
+		pr, pw := io.Pipe()
+		vaultErrCh := make(chan error, 1)
+		go func() {
+			err := s.vault.GetContent(content.EncryptedContentID.String, pw)
+			pw.CloseWithError(err)
+			vaultErrCh <- err
+		}()
+
+		decryptErr := decryptCtx.Decrypt(pr, f)
+		pr.CloseWithError(decryptErr) // unblock goroutine if Decrypt failed early
+		<-vaultErrCh                  // wait for goroutine to finish (no leak)
+
+		if decryptErr != nil {
 			os.Remove(outPath)
-			return "", fmt.Errorf("retrieving encrypted content from vault: %w", err)
-		}
-		if err := decryptCtx.Decrypt(&encBuf, f); err != nil {
-			os.Remove(outPath)
-			return "", fmt.Errorf("decrypting content: %w", err)
+			return "", fmt.Errorf("decrypting content: %w", decryptErr)
 		}
 	} else {
 		// Unencrypted: write plaintext directly from vault.

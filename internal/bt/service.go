@@ -1,11 +1,11 @@
 package bt
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 
 	"bt-go/internal/database/sqlc"
@@ -208,19 +208,37 @@ func (s *BTService) backupFile(content io.Reader, snapshot sqlc.FileSnapshot, di
 	snapshot.CreatedAt = s.clock.Now()
 
 	if dir.Encrypted != 0 {
-		// Encrypted directory: encrypt the content, compute the encrypted checksum,
-		// upload the ciphertext, then record both content records in the DB.
-		var encBuf bytes.Buffer
-		if err := s.encryptor.Encrypt(content, &encBuf); err != nil {
+		// Encrypted directory: encrypt to a temp file while hashing so we know the
+		// ciphertext checksum (vault key) without buffering the whole file in memory.
+		tmp, err := os.CreateTemp("", "bt-enc-*.tmp")
+		if err != nil {
+			return fmt.Errorf("creating encrypted temp file: %w", err)
+		}
+		tmpPath := tmp.Name()
+		defer os.Remove(tmpPath)
+
+		h := sha256.New()
+		if err := s.encryptor.Encrypt(content, io.MultiWriter(tmp, h)); err != nil {
+			tmp.Close()
 			return fmt.Errorf("encrypting content: %w", err)
 		}
-		encBytes := encBuf.Bytes()
-		h := sha256.Sum256(encBytes)
-		encChecksum := hex.EncodeToString(h[:])
+		encChecksum := hex.EncodeToString(h.Sum(nil))
 
-		if err := s.vault.PutContent(encChecksum, bytes.NewReader(encBytes), int64(len(encBytes))); err != nil {
+		info, err := tmp.Stat()
+		if err != nil {
+			tmp.Close()
+			return fmt.Errorf("stat encrypted temp file: %w", err)
+		}
+		if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+			tmp.Close()
+			return fmt.Errorf("seeking encrypted temp file: %w", err)
+		}
+		if err := s.vault.PutContent(encChecksum, tmp, info.Size()); err != nil {
+			tmp.Close()
 			return fmt.Errorf("uploading encrypted content to vault: %w", err)
 		}
+		tmp.Close()
+
 		if err := s.database.CreateFileSnapshotAndContent(directoryID, relativePath, &snapshot, encChecksum); err != nil {
 			return fmt.Errorf("recording backup in database: %w", err)
 		}
