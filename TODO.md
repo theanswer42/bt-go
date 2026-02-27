@@ -1,23 +1,19 @@
 # TODO Items, in order of importance
 
-## Encryption
-Enable encryption at the directory level. If enabled, everything in
-that directory will be encrypted in the vault.
+## S3Vault
+Spec and build the S3Vault
 
-Before we do this, we'll need a general investigation into how to
-implement encryption in a "safe" way (not just safe as in secure, but
-also safe as in, I should not lose my entire backup because I forgot
-something).
+# Manual testing work
 
 ## Full test with FSVault
 Build a suite of sorts of manual integration tests.
-
-## S3Vault
 
 ## Full test with S3Vault
 
 ## bt config init
 
+
+# Future
 
 ## Daemon design
 Let's create a design for how to implement the bt-daemon. Include:
@@ -58,5 +54,10 @@ daemon. manual call with with `bt add x` should not enforce this.
   CreateContent instead of using an injected clock. Limits testability
   for timestamp assertions.
 
+## Issue: Staging Queue Scalability
+`filesystemStore` uses a single `queue.json` file for the staging
+queue, which will become a bottleneck and performance risk as the
+number of staged items grows.
 
-
+**Suggested Fix**: Transition the staging queue to a more scalable
+format, such as an SQLite table or a line-delimited JSON (JSONL) file.

@@ -503,15 +503,15 @@ func (s *SQLiteDatabase) CreateFileSnapshotAndContent(directoryID string, relati
 	return nil
 }
 
-// snapshotsEqual compares all relevant fields of two file snapshots.
+// snapshotsEqual compares the fields that indicate a file has actually changed.
 // ID and CreatedAt are excluded — they're identity/metadata, not file state.
+// AccessedAt is excluded — it changes on reads and would cause spurious backups.
 func snapshotsEqual(a, b *sqlc.FileSnapshot) bool {
 	return a.ContentID == b.ContentID &&
 		a.Size == b.Size &&
 		a.Permissions == b.Permissions &&
 		a.Uid == b.Uid &&
 		a.Gid == b.Gid &&
-		a.AccessedAt.Equal(b.AccessedAt) &&
 		a.ModifiedAt.Equal(b.ModifiedAt) &&
 		a.ChangedAt.Equal(b.ChangedAt) &&
 		a.BornAt == b.BornAt

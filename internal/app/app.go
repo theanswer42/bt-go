@@ -1,8 +1,9 @@
 package app
 
 import (
-	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -207,20 +208,18 @@ func (a *BTApp) BackupAll() (int, error) {
 // For persisted operations: finishes the operation record, backs up the DB, and uploads to vault.
 // For non-persisted operations: just closes the database.
 func (a *BTApp) Close() error {
-	var firstErr error
+	var errs []error
 
 	if a.op.Persisted() {
 		// Finalize the operation record
 		if err := a.db.FinishBackupOperation(a.op.ID, a.op.Status); err != nil {
-			firstErr = fmt.Errorf("finishing backup operation: %w", err)
+			errs = append(errs, fmt.Errorf("finishing backup operation: %w", err))
 		}
 
 		// Snapshot the DB to a temp file
 		tmpFile, err := os.CreateTemp("", "bt-db-backup-*.db")
 		if err != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("creating temp file for db backup: %w", err)
-			}
+			errs = append(errs, fmt.Errorf("creating temp file for db backup: %w", err))
 		}
 
 		var tmpPath string
@@ -229,26 +228,20 @@ func (a *BTApp) Close() error {
 			tmpFile.Close()
 
 			if err := a.db.BackupTo(tmpPath); err != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("backing up database: %w", err)
-				}
+				errs = append(errs, fmt.Errorf("backing up database: %w", err))
 				tmpPath = "" // skip vault upload
 			}
 		}
 
 		// Close the database
 		if err := a.db.Close(); err != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("closing database: %w", err)
-			}
+			errs = append(errs, fmt.Errorf("closing database: %w", err))
 		}
 
 		// Upload DB snapshot to vault with version = operation ID
 		if tmpPath != "" {
 			if err := a.uploadMetadata(tmpPath, a.op.ID); err != nil {
-				if firstErr == nil {
-					firstErr = err
-				}
+				errs = append(errs, err)
 			}
 		}
 
@@ -260,15 +253,13 @@ func (a *BTApp) Close() error {
 		// Upload encryption key files to vault (idempotent; version is always 1).
 		if a.encryptor.IsConfigured() {
 			if err := a.uploadKeyMetadata(); err != nil {
-				if firstErr == nil {
-					firstErr = err
-				}
+				errs = append(errs, err)
 			}
 		}
 	} else {
 		// Non-mutating operation: just close the database, no upload
 		if err := a.db.Close(); err != nil {
-			firstErr = fmt.Errorf("closing database: %w", err)
+			errs = append(errs, fmt.Errorf("closing database: %w", err))
 		}
 	}
 
@@ -276,7 +267,7 @@ func (a *BTApp) Close() error {
 		a.logFile.Close()
 	}
 
-	return firstErr
+	return errors.Join(errs...)
 }
 
 // uploadMetadata opens the temp DB file, encrypts it if encryption is configured,
@@ -289,13 +280,31 @@ func (a *BTApp) uploadMetadata(path string, version int64) error {
 	defer f.Close()
 
 	if a.encryptor.IsConfigured() {
-		var buf bytes.Buffer
-		if err := a.encryptor.Encrypt(f, &buf); err != nil {
+		encTmp, err := os.CreateTemp("", "bt-meta-enc-*.tmp")
+		if err != nil {
+			return fmt.Errorf("creating encrypted temp file: %w", err)
+		}
+		encTmpPath := encTmp.Name()
+		defer os.Remove(encTmpPath)
+
+		if err := a.encryptor.Encrypt(f, encTmp); err != nil {
+			encTmp.Close()
 			return fmt.Errorf("encrypting db backup: %w", err)
 		}
-		if err := a.vault.PutMetadata(a.cfg.HostID, "db", &buf, int64(buf.Len()), version); err != nil {
+		info, err := encTmp.Stat()
+		if err != nil {
+			encTmp.Close()
+			return fmt.Errorf("stat encrypted db temp file: %w", err)
+		}
+		if _, err := encTmp.Seek(0, io.SeekStart); err != nil {
+			encTmp.Close()
+			return fmt.Errorf("seeking encrypted db temp file: %w", err)
+		}
+		if err := a.vault.PutMetadata(a.cfg.HostID, "db", encTmp, info.Size(), version); err != nil {
+			encTmp.Close()
 			return fmt.Errorf("uploading metadata to vault: %w", err)
 		}
+		encTmp.Close()
 		return nil
 	}
 
