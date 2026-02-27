@@ -1,15 +1,5 @@
 # TODO Items, in order of importance
 
-## Code review - file access time usage for checking if file changed
-- **Issue: Snapshot Sensitivity to `atime`**. `snapshotsEqual` in `internal/database/sqlite.go` compares `AccessedAt`, which changes on file reads. This leads to redundant snapshots and backups.
-  - **Suggested Fix**: Update `snapshotsEqual` to exclude `AccessedAt` from the comparison. Focus on `ModifiedAt`, `Size`, and `ContentID`.
-- **Issue: Staging Queue Scalability**. `filesystemStore` uses a single `queue.json` file for the staging queue, which will become a bottleneck and performance risk as the number of staged items grows.
-  - **Suggested Fix**: Transition the staging queue to a more scalable format, such as an SQLite table or a line-delimited JSON (JSONL) file.
-
-## Code review Argon2id vs scrypt
-- **Issue: KDF Discrepancy**. `DESIGN.md` specifies `Argon2id` for private key protection, but `internal/encryption/age.go` uses `scrypt` (the `age` default).
-  - **Suggested Fix**: Either update `DESIGN.md` to reflect the use of `scrypt` or implement an `Argon2id` wrapper for the private key before passing it to `age`.
-
 ## S3Vault
 Spec and build the S3Vault
 
@@ -64,5 +54,10 @@ daemon. manual call with with `bt add x` should not enforce this.
   CreateContent instead of using an injected clock. Limits testability
   for timestamp assertions.
 
+## Issue: Staging Queue Scalability
+`filesystemStore` uses a single `queue.json` file for the staging
+queue, which will become a bottleneck and performance risk as the
+number of staged items grows.
 
-
+**Suggested Fix**: Transition the staging queue to a more scalable
+format, such as an SQLite table or a line-delimited JSON (JSONL) file.

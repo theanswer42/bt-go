@@ -36,7 +36,7 @@ provides:
 - AWS S3 or S3-compatible storage (primary use case)
 
 ### Encryption
-- `filippo.io/age` — X25519 key pairs, ChaCha20-Poly1305 symmetric encryption, Argon2id KDF for passphrase-protected private keys. Chosen for its simplicity, auditability, and native Go streaming support.
+- `filippo.io/age` — X25519 key pairs, ChaCha20-Poly1305 symmetric encryption, scrypt KDF for passphrase-protected private keys. Chosen for its simplicity, auditability, and native Go streaming support.
 
 ### Host System Requirements
 The backup tool requires the following from the host system:
@@ -63,7 +63,7 @@ The backup tool requires the following from the host system:
 
 4. **Key Loss**: Loss of the encryption key pair means permanent data loss for all encrypted content. Keys are backed up to the vault as metadata, but if the vault itself is lost, encrypted content is irrecoverable.
 
-5. **Forgotten Passphrase**: The private key is protected by a passphrase (Argon2id + age). A forgotten passphrase makes all encrypted backups irrecoverable — there is no recovery mechanism by design.
+5. **Forgotten Passphrase**: The private key is protected by a passphrase (age scrypt). A forgotten passphrase makes all encrypted backups irrecoverable — there is no recovery mechanism by design.
 
 ### Open Questions
 1. **File Watcher Implementation**: How to efficiently detect and stage changed files using file watchers
@@ -93,7 +93,7 @@ bt config init
 Creates configuration file in `~/.config/bt.toml`.
 Also prompts for a passphrase and generates an X25519 key pair:
 - Public key stored in plaintext at `$BT_BASE_DIR/keys/bt.pub`
-- Private key encrypted with passphrase (Argon2id + age) at `$BT_BASE_DIR/keys/bt.key`
+- Private key encrypted with passphrase (age scrypt) at `$BT_BASE_DIR/keys/bt.key`
 
 #### View Configuration
 ```bash
@@ -499,7 +499,7 @@ class Encryptor:
         One-time key generation. Called during `bt config init`.
         - Generates X25519 key pair
         - Stores public key in plaintext at config.public_key_path
-        - Encrypts private key with passphrase (Argon2id + age
+        - Encrypts private key with passphrase (age scrypt
           passphrase encryption)
         - Stores encrypted private key at config.private_key_path
         - Argon2id parameters should be set to high memory/iteration
