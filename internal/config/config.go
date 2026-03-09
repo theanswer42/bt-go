@@ -40,9 +40,12 @@ type VaultConfig struct {
 	Name string `toml:"name"`
 
 	// S3-specific fields (only used when Type == "s3")
-	S3Bucket string `toml:"s3_bucket,omitempty"`
-	S3Prefix string `toml:"s3_prefix,omitempty"`
-	S3Region string `toml:"s3_region,omitempty"`
+	S3Bucket          string `toml:"s3_bucket,omitempty"`
+	S3Region          string `toml:"s3_region,omitempty"`
+	S3ContentPrefix   string `toml:"s3_content_prefix,omitempty"`
+	S3MetadataPrefix  string `toml:"s3_metadata_prefix,omitempty"`
+	S3AccessKeyID     string `toml:"s3_access_key_id,omitempty"`
+	S3SecretAccessKey string `toml:"s3_secret_access_key,omitempty"`
 
 	// FileSystem-specific fields (only used when Type == "filesystem")
 	FSVaultRoot string `toml:"fs_vault_root,omitempty"`
