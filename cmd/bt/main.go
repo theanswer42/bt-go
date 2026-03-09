@@ -16,6 +16,8 @@ import (
 	"golang.org/x/term"
 )
 
+var version string
+
 func main() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -44,8 +46,9 @@ func newApp(operation string) (*app.BTApp, error) {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "bt",
-	Short: "Personal backup tool",
+	Use:     "bt",
+	Short:   "Personal backup tool",
+	Version: version,
 }
 
 // config command
