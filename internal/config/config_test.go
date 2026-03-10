@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -85,11 +86,23 @@ func TestNewConfig(t *testing.T) {
 	if cfg.LogDir != "/data/bt/log" {
 		t.Errorf("LogDir = %q, want %q", cfg.LogDir, "/data/bt/log")
 	}
+	if cfg.Encryption.Type != "age" {
+		t.Errorf("Encryption.Type = %q, want %q", cfg.Encryption.Type, "age")
+	}
 	if cfg.Encryption.PublicKeyPath != "/data/bt/keys/bt.pub" {
 		t.Errorf("Encryption.PublicKeyPath = %q, want %q", cfg.Encryption.PublicKeyPath, "/data/bt/keys/bt.pub")
 	}
 	if cfg.Encryption.PrivateKeyPath != "/data/bt/keys/bt.key" {
 		t.Errorf("Encryption.PrivateKeyPath = %q, want %q", cfg.Encryption.PrivateKeyPath, "/data/bt/keys/bt.key")
+	}
+	if cfg.Database.Type != "sqlite" {
+		t.Errorf("Database.Type = %q, want %q", cfg.Database.Type, "sqlite")
+	}
+	if cfg.Staging.Type != "filesystem" {
+		t.Errorf("Staging.Type = %q, want %q", cfg.Staging.Type, "filesystem")
+	}
+	if cfg.Staging.MaxSize != 1<<20 {
+		t.Errorf("Staging.MaxSize = %d, want %d", cfg.Staging.MaxSize, 1<<20)
 	}
 }
 
@@ -105,6 +118,24 @@ func TestInit(t *testing.T) {
 
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("config file not created: %v", err)
+		}
+	})
+
+	t.Run("appends vault examples", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "bt.toml")
+		cfg := NewConfig("h1", dir)
+
+		if err := Init(path, cfg); err != nil {
+			t.Fatalf("Init() error = %v", err)
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile() error = %v", err)
+		}
+		if !strings.Contains(string(data), "# Example vault configurations") {
+			t.Error("Init() did not append vault examples to config file")
 		}
 	})
 

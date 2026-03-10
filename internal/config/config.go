@@ -66,6 +66,27 @@ type StagingConfig struct {
 	MaxSize    int64  `toml:"max_size"`              // max total size in bytes; must be positive, defaults to 1MB
 }
 
+// vaultExamples is appended as a comment block to newly initialized config files
+// to show users how to configure each vault type.
+const vaultExamples = `
+# Example vault configurations (uncomment and fill in to use):
+#
+# [[vaults]]
+# type = "filesystem"
+# name = "local"
+# fs_vault_root = "/path/to/vault"
+#
+# [[vaults]]
+# type = "s3"
+# name = "remote"
+# s3_bucket = "my-bucket"
+# s3_region = "us-east-1"
+# s3_content_prefix = "bt/content"
+# s3_metadata_prefix = "bt/metadata"
+# s3_access_key_id = "AKIAIOSFODNN7EXAMPLE"
+# s3_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+`
+
 // NewConfig creates a new Config with the provided values and default key paths.
 func NewConfig(hostID, baseDir string) *Config {
 	return &Config{
@@ -73,8 +94,16 @@ func NewConfig(hostID, baseDir string) *Config {
 		BaseDir: baseDir,
 		LogDir:  filepath.Join(baseDir, "log"),
 		Encryption: EncryptionConfig{
+			Type:           "age",
 			PublicKeyPath:  filepath.Join(baseDir, "keys", "bt.pub"),
 			PrivateKeyPath: filepath.Join(baseDir, "keys", "bt.key"),
+		},
+		Database: DatabaseConfig{
+			Type: "sqlite",
+		},
+		Staging: StagingConfig{
+			Type:    "filesystem",
+			MaxSize: 1 << 20, // 1 MB
 		},
 	}
 }
@@ -146,6 +175,16 @@ func Init(path string, cfg *Config) error {
 
 	if err := writeToFile(path, cfg); err != nil {
 		return fmt.Errorf("initializing config: %w", err)
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("opening config for append: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(vaultExamples); err != nil {
+		return fmt.Errorf("appending vault examples: %w", err)
 	}
 	return nil
 }

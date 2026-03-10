@@ -1,8 +1,5 @@
 # TODO Items, in order of importance
 
-## S3Vault
-Spec and build the S3Vault
-
 # Manual testing work
 
 ## Full test with FSVault

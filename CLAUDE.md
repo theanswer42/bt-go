@@ -201,10 +201,13 @@ func TestService_CreateUser(t *testing.T) {
 
 When I ask you to implement a feature, follow this order:
 
-1. **Define the interface first** — what does this component need to do? Write the interface and its doc comments.
-2. **Implement the concrete type** — satisfy the interface with a constructor that accepts dependencies.
-3. **Write the tests** — table-driven, covering happy path and error cases. Tests should pass.
-4. **Verify** — run `go build ./...` and `go test -race ./...`. Do not move on if either fails.
+1. **Create a new git branch** — `git checkout main; git pull;  git checkout -b ...`
+2. **Define the interface first** — what does this component need to do? Write the interface and its doc comments.
+3. **Implement the concrete type** — satisfy the interface with a constructor that accepts dependencies.
+4. **Write the tests** — table-driven, covering happy path and error cases. Tests should pass.
+5. **Verify** — run `go build ./...` and `go test -race ./...`. Do not
+   move on if either fails.
+6. **Push branch to github, create a PR** - `git push --set-upstream; gh pr create`
 
 Other guidelines for working with me:
 - Keep changes small and focused. One logical unit per implementation cycle.
