@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.41.3 // AWS SDK core — S3Vault backend
 	github.com/aws/aws-sdk-go-v2/config v1.32.11 // AWS config loading for S3Vault
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.11 // Static credentials provider for S3Vault
-	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.4 // Multipart upload manager for S3Vault
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.6 // Multipart upload manager for S3Vault
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.4 // S3 client for S3Vault
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/google/uuid v1.6.0
