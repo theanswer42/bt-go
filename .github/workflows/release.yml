@@ -22,8 +22,9 @@ jobs:
 
       - name: Build
         run: |
-          CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o bt ./cmd/bt
-          tar -czf bt-${{ github.ref_name }}-linux-amd64.tar.gz bt
+          export BT_BUILD_VERSION=${{ github.ref_name }}
+          make build
+          tar -czf bt-${{ github.ref_name }}-linux-amd64.tar.gz bin/bt
 
       - name: Create GitHub release
         env:
