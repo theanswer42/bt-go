@@ -24,7 +24,7 @@ jobs:
         run: |
           export BT_BUILD_VERSION=${{ github.ref_name }}
           make build
-          tar -czf bt-${{ github.ref_name }}-linux-amd64.tar.gz bt
+          tar -czf bt-${{ github.ref_name }}-linux-amd64.tar.gz bin/bt
 
       - name: Create GitHub release
         env:
