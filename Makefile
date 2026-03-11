@@ -18,7 +18,7 @@ generate: sqlc ## Generate all code (schema + sqlc)
 
 build: ## Build the bt binary
 	@echo "Building bt..."
-	@go build -o bin/bt ./cmd/bt
+	@ CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${BT_BUILD_VERSION}" -o bt ./cmd/bt
 
 test: ## Run all tests
 	@echo "Running tests..."
