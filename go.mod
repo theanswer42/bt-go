@@ -5,7 +5,7 @@ go 1.25.6
 require (
 	filippo.io/age v1.3.1
 	github.com/BurntSushi/toml v1.6.0
-	github.com/aws/aws-sdk-go-v2 v1.41.3 // AWS SDK core — S3Vault backend
+	github.com/aws/aws-sdk-go-v2 v1.41.4 // AWS SDK core — S3Vault backend
 	github.com/aws/aws-sdk-go-v2/config v1.32.11 // AWS config loading for S3Vault
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.11 // Static credentials provider for S3Vault
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.4 // Multipart upload manager for S3Vault
