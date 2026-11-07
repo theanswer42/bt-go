@@ -9,6 +9,7 @@ import (
 	"bt-go/internal/app"
 	"bt-go/internal/bt"
 	"bt-go/internal/config"
+	"bt-go/internal/database"
 	"bt-go/internal/encryption"
 
 	"github.com/google/uuid"
@@ -32,9 +33,9 @@ func newApp(operation string) (*app.BTApp, error) {
 		return nil, fmt.Errorf("getting defaults: %w", err)
 	}
 
-	cfg, err := config.ReadFromFile(defaults["config_path"])
+	cfg, err := config.Load(defaults["config_path"])
 	if err != nil {
-		return nil, fmt.Errorf("reading config: %w", err)
+		return nil, err
 	}
 
 	a, err := app.NewBTApp(cfg, operation)
@@ -61,85 +62,75 @@ var configInitCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize configuration and generate encryption keys",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		fsVault, _ := cmd.Flags().GetString("fs-vault")
+
 		defaults, err := app.GetDefaults()
 		if err != nil {
 			return fmt.Errorf("failed to get defaults: %w", err)
 		}
 
-		hostID := uuid.New().String()
-		cfg := config.NewConfig(hostID, defaults["base_dir"])
-
-		// Write config file first; errors if it already exists.
-		if err := config.Init(defaults["config_path"], cfg); err != nil {
+		in := app.NewInitializer(termPrompter{}, func(c config.EncryptionConfig) (app.KeyGenerator, error) {
+			return encryption.NewEncryptorFromConfig(c)
+		}, database.CreateFromConfig)
+		cfg, err := in.Init(app.InitParams{
+			ConfigPath:  defaults["config_path"],
+			BaseDir:     defaults["base_dir"],
+			HostID:      uuid.New().String(),
+			FSVaultRoot: fsVault,
+		})
+		if err != nil {
 			return fmt.Errorf("failed to initialize config: %w", err)
 		}
 
-		// Generate encryption key pair.
-		enc, err := encryption.NewEncryptorFromConfig(cfg.Encryption)
-		if err != nil {
-			return fmt.Errorf("creating encryptor: %w", err)
-		}
-
-		if enc.IsConfigured() {
-			return fmt.Errorf("encryption keys already exist at %s", cfg.Encryption.PublicKeyPath)
-		}
-
-		fmt.Print("Enter passphrase for encryption key: ")
-		passphrase, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Println()
-		if err != nil {
-			return fmt.Errorf("reading passphrase: %w", err)
-		}
-
-		if len(passphrase) == 0 {
-			return fmt.Errorf("passphrase must not be empty")
-		}
-
-		fmt.Print("Confirm passphrase: ")
-		confirm, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Println()
-		if err != nil {
-			return fmt.Errorf("reading passphrase confirmation: %w", err)
-		}
-
-		if string(passphrase) != string(confirm) {
-			return fmt.Errorf("passphrases do not match")
-		}
-
-		if err := enc.Setup(string(passphrase)); err != nil {
-			return fmt.Errorf("generating encryption keys: %w", err)
-		}
-
 		fmt.Printf("Configuration initialized at %s\n", defaults["config_path"])
-		fmt.Printf("Host ID:     %s\n", hostID)
-		fmt.Printf("Base Dir:    %s\n", defaults["base_dir"])
+		fmt.Printf("Host ID:     %s\n", cfg.HostID)
+		fmt.Printf("Base Dir:    %s\n", cfg.BaseDir)
 		fmt.Printf("Public key:  %s\n", cfg.Encryption.PublicKeyPath)
 		fmt.Printf("Private key: %s\n", cfg.Encryption.PrivateKeyPath)
+		if len(cfg.Vaults) == 0 {
+			fmt.Printf("\nNote: no vault is configured, so other bt commands will fail until you\n")
+			fmt.Printf("add a [[vaults]] entry to %s.\n", defaults["config_path"])
+			fmt.Printf("The file ends with these commented examples:\n")
+			fmt.Print(config.VaultExamples())
+		} else {
+			fmt.Printf("Vault:       %s (%s) %s\n", cfg.Vaults[0].Name, cfg.Vaults[0].Type, cfg.Vaults[0].FSVaultRoot)
+		}
 		return nil
 	},
+}
+
+// termPrompter reads passphrases from the terminal on stdin without echo.
+type termPrompter struct{}
+
+func (termPrompter) PromptPassphrase(prompt string) (string, error) {
+	fmt.Print(prompt)
+	b, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	return string(b), err
 }
 
 var configListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "View configuration",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get application defaults
 		defaults, err := app.GetDefaults()
 		if err != nil {
 			return fmt.Errorf("failed to get defaults: %w", err)
 		}
 
-		// Read config
+		// Read without validating so an incomplete config can still be inspected.
 		cfg, err := config.ReadFromFile(defaults["config_path"])
 		if err != nil {
 			return fmt.Errorf("failed to read config: %w", err)
 		}
 
-		// Display config
 		fmt.Printf("Configuration from %s:\n\n", defaults["config_path"])
-		fmt.Printf("Host ID:  %s\n", cfg.HostID)
-		fmt.Printf("Base Dir: %s\n", cfg.BaseDir)
-		fmt.Printf("Log Dir:  %s\n", cfg.LogDir)
+		if err := config.Format(os.Stdout, cfg); err != nil {
+			return fmt.Errorf("printing config: %w", err)
+		}
+		if err := cfg.Validate(); err != nil {
+			fmt.Printf("\nWarning: config is not usable yet: %v\n", err)
+		}
 		return nil
 	},
 }
@@ -426,6 +417,7 @@ var restoreCmd = &cobra.Command{
 func init() {
 	// config subcommands
 	configCmd.AddCommand(configInitCmd)
+	configInitCmd.Flags().String("fs-vault", "", "Configure a filesystem vault rooted at PATH")
 	configCmd.AddCommand(configListCmd)
 	configCmd.AddCommand(configVaultCmd)
 	configVaultCmd.AddCommand(configVaultInitCmd)
