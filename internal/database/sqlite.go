@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,8 +15,28 @@ import (
 	"bt-go/internal/database/migrations"
 	"bt-go/internal/database/sqlc"
 
-	_ "github.com/mattn/go-sqlite3" // SQLite driver
+	_ "modernc.org/sqlite" // Pure-Go SQLite driver (registers "sqlite")
 )
+
+// memoryPath is the special SQLite path for a private in-memory database.
+const memoryPath = ":memory:"
+
+// dsnParams are the modernc.org/sqlite DSN parameters applied to every
+// connection the pool opens. Per-connection settings must go here rather than
+// through db.Exec, which only reaches whichever pooled connection runs it.
+//
+//   - foreign_keys(1): SQLite defaults foreign keys OFF for backward compatibility.
+//   - busy_timeout(5000): wait up to 5s for locks; matches the default the
+//     previous driver (mattn/go-sqlite3) applied implicitly.
+//   - _time_format=sqlite: write time.Time as "2006-01-02 15:04:05.999999999-07:00",
+//     byte-for-byte the format mattn/go-sqlite3 wrote, so databases created by
+//     older bt versions and rows written now share one format. Without it the
+//     driver writes time.Time.String(), which can include a monotonic clock
+//     reading ("m=+0.001").
+//
+// Future SQLite optimizations can be added here, e.g. _pragma=journal_mode(WAL)
+// or _pragma=synchronous(NORMAL).
+const dsnParams = "_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_time_format=sqlite"
 
 // SQLiteDatabase implements the Database interface using SQLite.
 type SQLiteDatabase struct {
@@ -74,21 +95,28 @@ func NewSQLiteDatabaseFromDB(db *sql.DB, nowFn func() time.Time, newIDFn func() 
 // This is exported for use in tools and tests that need a properly configured SQLite connection.
 // path can be a file path or ":memory:" for in-memory database.
 func OpenConnection(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", path)
+	// The driver treats everything after the first '?' as DSN parameters, so a
+	// path containing one would be silently truncated.
+	if strings.Contains(path, "?") {
+		return nil, fmt.Errorf("database path %q must not contain '?'", path)
+	}
+
+	db, err := sql.Open("sqlite", path+"?"+dsnParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Enable foreign key constraints (SQLite default is OFF for backward compatibility)
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
+	// Every connection to ":memory:" gets its own, separate empty database.
+	// Limit the pool to a single connection so all queries see the same one.
+	if path == memoryPath {
+		db.SetMaxOpenConns(1)
 	}
 
-	// Future SQLite optimizations can be added here:
-	// - PRAGMA journal_mode = WAL  (Write-Ahead Logging for better concurrency)
-	// - PRAGMA busy_timeout = 5000 (Wait up to 5s for locks)
-	// - PRAGMA synchronous = NORMAL (Balance between safety and performance)
+	// sql.Open is lazy; connect now so a bad path or DSN fails here.
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
 
 	return db, nil
 }
@@ -366,15 +394,16 @@ func (s *SQLiteDatabase) UpdateFileCurrentSnapshot(file *sqlc.File, snapshotID s
 }
 
 // CreateFileSnapshotAndContent atomically records a backup in a single transaction:
-// 1. Finds or creates the file record for the given directory + relative path.
-// 2. Creates the content record(s) if they don't already exist.
-//    - Unencrypted: creates Content(ID=plaintext_checksum).
-//    - Encrypted (encryptedContentID != ""): creates Content(ID=encryptedContentID)
-//      as the real vault record, and Content(ID=plaintext_checksum, encrypted_content_id=encryptedContentID)
-//      as the virtual pointer record.
-// 3. Compares against the file's current snapshot — if all relevant fields match,
-//    this is a no-op (the file hasn't changed).
-// 4. Otherwise creates a new snapshot and updates the file's current snapshot pointer.
+//
+//  1. Finds or creates the file record for the given directory + relative path.
+//  2. Creates the content record(s) if they don't already exist. Unencrypted:
+//     creates Content(ID=plaintext_checksum). Encrypted (encryptedContentID != ""):
+//     creates Content(ID=encryptedContentID) as the real vault record, and
+//     Content(ID=plaintext_checksum, encrypted_content_id=encryptedContentID)
+//     as the virtual pointer record.
+//  3. Compares against the file's current snapshot — if all relevant fields match,
+//     this is a no-op (the file hasn't changed).
+//  4. Otherwise creates a new snapshot and updates the file's current snapshot pointer.
 func (s *SQLiteDatabase) CreateFileSnapshotAndContent(directoryID string, relativePath string, snapshot *sqlc.FileSnapshot, encryptedContentID string) error {
 	ctx := context.Background()
 

@@ -89,12 +89,12 @@ type mockFileInfo struct {
 	entry *mockEntry
 }
 
-func (m *mockFileInfo) Name() string      { return m.name }
-func (m *mockFileInfo) Size() int64       { return int64(len(m.entry.content)) }
-func (m *mockFileInfo) Mode() fs.FileMode { return m.entry.mode }
+func (m *mockFileInfo) Name() string       { return m.name }
+func (m *mockFileInfo) Size() int64        { return int64(len(m.entry.content)) }
+func (m *mockFileInfo) Mode() fs.FileMode  { return m.entry.mode }
 func (m *mockFileInfo) ModTime() time.Time { return m.entry.modTime }
-func (m *mockFileInfo) IsDir() bool       { return m.entry.isDir }
-func (m *mockFileInfo) Sys() any          { return m.entry }
+func (m *mockFileInfo) IsDir() bool        { return m.entry.isDir }
+func (m *mockFileInfo) Sys() any           { return m.entry }
 
 var _ bt.FilesystemManager = (*mockFSMgr)(nil)
 
