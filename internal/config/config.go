@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -87,7 +89,13 @@ const vaultExamples = `
 # s3_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 `
 
-// NewConfig creates a new Config with the provided values and default key paths.
+// DefaultFSVaultName is the name given to the filesystem vault created by
+// NewFilesystemVaultConfig.
+const DefaultFSVaultName = "local"
+
+// NewConfig creates a new Config whose paths are all derived from baseDir:
+// logs, the SQLite data directory, the staging directory and the key pair.
+// No vault is configured; see NewFilesystemVaultConfig.
 func NewConfig(hostID, baseDir string) *Config {
 	return &Config{
 		HostID:  hostID,
@@ -99,13 +107,31 @@ func NewConfig(hostID, baseDir string) *Config {
 			PrivateKeyPath: filepath.Join(baseDir, "keys", "bt.key"),
 		},
 		Database: DatabaseConfig{
-			Type: "sqlite",
+			Type:    "sqlite",
+			DataDir: filepath.Join(baseDir, "data"),
 		},
 		Staging: StagingConfig{
-			Type:    "filesystem",
-			MaxSize: 1 << 20, // 1 MB
+			Type:       "filesystem",
+			StagingDir: filepath.Join(baseDir, "staging"),
+			MaxSize:    1 << 20, // 1 MB
 		},
 	}
+}
+
+// NewFilesystemVaultConfig returns a filesystem vault entry named
+// DefaultFSVaultName rooted at root, which is made absolute.
+func NewFilesystemVaultConfig(root string) (VaultConfig, error) {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return VaultConfig{}, fmt.Errorf("resolving vault root %q: %w", root, err)
+	}
+	return VaultConfig{Type: "filesystem", Name: DefaultFSVaultName, FSVaultRoot: abs}, nil
+}
+
+// VaultExamples returns the commented vault examples that Init appends to a
+// new config file.
+func VaultExamples() string {
+	return vaultExamples
 }
 
 // Manager handles reading and writing configuration.
@@ -128,7 +154,8 @@ func (m *Manager) Write(w io.Writer, cfg *Config) error {
 	return nil
 }
 
-// ReadFromFile reads a Config from the specified file path.
+// ReadFromFile reads a Config from the specified file path without validating
+// it. Use Load when the config is about to be used to build components.
 func ReadFromFile(path string) (*Config, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -144,45 +171,49 @@ func ReadFromFile(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// writeToFile writes a Config to the specified file path.
-// This is an internal helper and should not be exported.
-func writeToFile(path string, cfg *Config) error {
-	// Ensure the directory exists
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+// Load reads a Config from path and validates it. Validation errors name the
+// config file, e.g. "config /home/u/.config/bt.toml: [staging] staging_dir is required".
+func Load(path string) (*Config, error) {
+	cfg, err := ReadFromFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config %s: %w", path, err)
+	}
+	return cfg, nil
+}
+
+// Init creates a new config file at path containing cfg followed by the
+// commented vault examples. The file is created with mode 0600 and its parent
+// directory, if missing, with mode 0700. Init fails if the file already exists;
+// if writing fails part-way, the partially written file is removed.
+func Init(path string, cfg *Config) (err error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
 	}
 
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("failed to create config file: %w", err)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if errors.Is(err, fs.ErrExist) {
+		return fmt.Errorf("config file already exists at %s", path)
 	}
-	defer f.Close()
+	if err != nil {
+		return fmt.Errorf("creating config file: %w", err)
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("closing config file: %w", cerr)
+		}
+		if err != nil {
+			// Best effort: the original error is what the caller needs to see.
+			_ = os.Remove(path)
+		}
+	}()
 
 	m := &Manager{}
 	if err := m.Write(f, cfg); err != nil {
 		return fmt.Errorf("writing config to %s: %w", path, err)
 	}
-	return nil
-}
-
-// Init initializes a new config file at the specified path with the provided Config.
-func Init(path string, cfg *Config) error {
-	// Check if config already exists
-	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("config file already exists at %s", path)
-	}
-
-	if err := writeToFile(path, cfg); err != nil {
-		return fmt.Errorf("initializing config: %w", err)
-	}
-
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("opening config for append: %w", err)
-	}
-	defer f.Close()
-
 	if _, err := f.WriteString(vaultExamples); err != nil {
 		return fmt.Errorf("appending vault examples: %w", err)
 	}
