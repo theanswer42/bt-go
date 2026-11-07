@@ -77,37 +77,63 @@ func TestManager_ReadWrite_RoundTrip(t *testing.T) {
 func TestNewConfig(t *testing.T) {
 	cfg := NewConfig("host-1", "/data/bt")
 
-	if cfg.HostID != "host-1" {
-		t.Errorf("HostID = %q, want %q", cfg.HostID, "host-1")
+	tests := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"HostID", cfg.HostID, "host-1"},
+		{"BaseDir", cfg.BaseDir, "/data/bt"},
+		{"LogDir", cfg.LogDir, "/data/bt/log"},
+		{"Encryption.Type", cfg.Encryption.Type, "age"},
+		{"Encryption.PublicKeyPath", cfg.Encryption.PublicKeyPath, "/data/bt/keys/bt.pub"},
+		{"Encryption.PrivateKeyPath", cfg.Encryption.PrivateKeyPath, "/data/bt/keys/bt.key"},
+		{"Database.Type", cfg.Database.Type, "sqlite"},
+		{"Database.DataDir", cfg.Database.DataDir, "/data/bt/data"},
+		{"Staging.Type", cfg.Staging.Type, "filesystem"},
+		{"Staging.StagingDir", cfg.Staging.StagingDir, "/data/bt/staging"},
+		{"Staging.MaxSize", cfg.Staging.MaxSize, int64(1 << 20)},
+		{"len(Vaults)", len(cfg.Vaults), 0},
 	}
-	if cfg.BaseDir != "/data/bt" {
-		t.Errorf("BaseDir = %q, want %q", cfg.BaseDir, "/data/bt")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.want {
+				t.Errorf("%s = %v, want %v", tt.name, tt.got, tt.want)
+			}
+		})
 	}
-	if cfg.LogDir != "/data/bt/log" {
-		t.Errorf("LogDir = %q, want %q", cfg.LogDir, "/data/bt/log")
+}
+
+func TestNewFilesystemVaultConfig(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if cfg.Encryption.Type != "age" {
-		t.Errorf("Encryption.Type = %q, want %q", cfg.Encryption.Type, "age")
+	tests := []struct {
+		name     string
+		root     string
+		wantRoot string
+	}{
+		{name: "absolute path kept", root: "/backup/vault", wantRoot: "/backup/vault"},
+		{name: "relative path made absolute", root: "vault", wantRoot: filepath.Join(wd, "vault")},
+		{name: "path cleaned", root: "/backup//vault/", wantRoot: "/backup/vault"},
 	}
-	if cfg.Encryption.PublicKeyPath != "/data/bt/keys/bt.pub" {
-		t.Errorf("Encryption.PublicKeyPath = %q, want %q", cfg.Encryption.PublicKeyPath, "/data/bt/keys/bt.pub")
-	}
-	if cfg.Encryption.PrivateKeyPath != "/data/bt/keys/bt.key" {
-		t.Errorf("Encryption.PrivateKeyPath = %q, want %q", cfg.Encryption.PrivateKeyPath, "/data/bt/keys/bt.key")
-	}
-	if cfg.Database.Type != "sqlite" {
-		t.Errorf("Database.Type = %q, want %q", cfg.Database.Type, "sqlite")
-	}
-	if cfg.Staging.Type != "filesystem" {
-		t.Errorf("Staging.Type = %q, want %q", cfg.Staging.Type, "filesystem")
-	}
-	if cfg.Staging.MaxSize != 1<<20 {
-		t.Errorf("Staging.MaxSize = %d, want %d", cfg.Staging.MaxSize, 1<<20)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NewFilesystemVaultConfig(tt.root)
+			if err != nil {
+				t.Fatalf("NewFilesystemVaultConfig() error = %v", err)
+			}
+			want := VaultConfig{Type: "filesystem", Name: DefaultFSVaultName, FSVaultRoot: tt.wantRoot}
+			if got != want {
+				t.Errorf("NewFilesystemVaultConfig() = %+v, want %+v", got, want)
+			}
+		})
 	}
 }
 
 func TestInit(t *testing.T) {
-	t.Run("creates config file", func(t *testing.T) {
+	t.Run("creates config file with mode 0600", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "bt.toml")
 		cfg := NewConfig("h1", dir)
@@ -116,15 +142,37 @@ func TestInit(t *testing.T) {
 			t.Fatalf("Init() error = %v", err)
 		}
 
-		if _, err := os.Stat(path); err != nil {
+		info, err := os.Stat(path)
+		if err != nil {
 			t.Fatalf("config file not created: %v", err)
+		}
+		if got := info.Mode().Perm(); got != 0600 {
+			t.Errorf("config file mode = %o, want 600", got)
 		}
 	})
 
-	t.Run("appends vault examples", func(t *testing.T) {
+	t.Run("creates missing parent directory with mode 0700", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "conf")
+		path := filepath.Join(dir, "bt.toml")
+
+		if err := Init(path, NewConfig("h1", dir)); err != nil {
+			t.Fatalf("Init() error = %v", err)
+		}
+
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatalf("config dir not created: %v", err)
+		}
+		if got := info.Mode().Perm(); got != 0700 {
+			t.Errorf("config dir mode = %o, want 700", got)
+		}
+	})
+
+	t.Run("written config round-trips and appends vault examples", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "bt.toml")
 		cfg := NewConfig("h1", dir)
+		cfg.Vaults = []VaultConfig{{Type: "filesystem", Name: "local", FSVaultRoot: "/v"}}
 
 		if err := Init(path, cfg); err != nil {
 			t.Fatalf("Init() error = %v", err)
@@ -137,30 +185,41 @@ func TestInit(t *testing.T) {
 		if !strings.Contains(string(data), "# Example vault configurations") {
 			t.Error("Init() did not append vault examples to config file")
 		}
+		got, err := Load(path)
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if got.Staging.StagingDir != cfg.Staging.StagingDir || got.Vaults[0] != cfg.Vaults[0] {
+			t.Errorf("Load() = %+v, want %+v", got, cfg)
+		}
 	})
 
-	t.Run("fails if file already exists", func(t *testing.T) {
+	t.Run("refuses an existing file and leaves it untouched", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "bt.toml")
-		cfg := NewConfig("h1", dir)
-
-		if err := Init(path, cfg); err != nil {
-			t.Fatalf("first Init() error = %v", err)
+		if err := os.WriteFile(path, []byte("original"), 0644); err != nil {
+			t.Fatal(err)
 		}
 
-		err := Init(path, cfg)
-		if err == nil {
-			t.Fatal("second Init() expected error")
+		err := Init(path, NewConfig("h1", dir))
+		if err == nil || !strings.Contains(err.Error(), "already exists") {
+			t.Fatalf("Init() error = %v, want 'already exists'", err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != "original" {
+			t.Errorf("existing file was modified: %q", data)
 		}
 	})
 }
 
 func TestReadFromFile(t *testing.T) {
-	t.Run("reads valid config", func(t *testing.T) {
+	t.Run("reads config without validating", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "bt.toml")
-		cfg := NewConfig("read-test", dir)
-		cfg.Database = DatabaseConfig{Type: "memory"}
+		cfg := NewConfig("read-test", dir) // no vaults: invalid, but readable
 
 		if err := Init(path, cfg); err != nil {
 			t.Fatalf("Init() error = %v", err)
@@ -181,4 +240,63 @@ func TestReadFromFile(t *testing.T) {
 			t.Fatal("ReadFromFile() expected error for missing file")
 		}
 	})
+}
+
+func TestLoad(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		wantErr string // substring; empty means success
+	}{
+		{
+			name: "valid config",
+			content: `host_id = "h"
+[database]
+type = "memory"
+[staging]
+type = "memory"
+[[vaults]]
+type = "memory"
+name = "m"
+`,
+		},
+		{
+			name: "invalid config names the file and key",
+			content: `host_id = "h"
+[database]
+type = "memory"
+[staging]
+type = "filesystem"
+[[vaults]]
+type = "memory"
+`,
+			wantErr: "[staging] staging_dir is required",
+		},
+		{
+			name:    "malformed toml",
+			content: "host_id = ",
+			wantErr: "decode",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "bt.toml")
+			if err := os.WriteFile(path, []byte(tt.content), 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(path)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Load() error = %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Load() error = nil, want %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) || !strings.Contains(err.Error(), path) {
+				t.Errorf("Load() error = %q, want it to contain %q and %q", err, tt.wantErr, path)
+			}
+		})
+	}
 }
