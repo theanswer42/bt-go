@@ -366,9 +366,9 @@ func TestS3Vault_ValidateSetup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		headBucket  func(_ context.Context, _ *s3.HeadBucketInput, _ ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
-		wantErr     bool
+		name       string
+		headBucket func(_ context.Context, _ *s3.HeadBucketInput, _ ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
+		wantErr    bool
 	}{
 		{
 			name: "returns nil on success",
