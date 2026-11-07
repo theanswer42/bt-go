@@ -21,10 +21,21 @@ jobs:
         run: go test -race ./...
 
       - name: Build
+        env:
+          CGO_ENABLED: "0"
         run: |
           export BT_BUILD_VERSION=${{ github.ref_name }}
           make build
           tar -czf bt-${{ github.ref_name }}-linux-amd64.tar.gz bin/bt
+
+      - name: Verify binary is statically linked
+        run: |
+          file bin/bt
+          file bin/bt | grep -q 'statically linked'
+          if ldd bin/bt; then
+            echo "bin/bt is dynamically linked" >&2
+            exit 1
+          fi
 
       - name: Create GitHub release
         env:
