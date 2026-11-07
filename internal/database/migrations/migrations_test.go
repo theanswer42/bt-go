@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func TestMigrateUp_FreshDatabase(t *testing.T) {
@@ -156,15 +156,13 @@ func TestSchema_DirectoryPathUnique(t *testing.T) {
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	db, err := sql.Open("sqlite3", ":memory:")
+	// foreign_keys is set via the DSN so it applies to every pooled connection.
+	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatalf("Failed to open test database: %v", err)
 	}
-
-	// Enable foreign keys
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		t.Fatalf("Failed to enable foreign keys: %v", err)
-	}
+	// Each ":memory:" connection is a separate database; use exactly one.
+	db.SetMaxOpenConns(1)
 
 	return db
 }
