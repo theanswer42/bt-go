@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	filippo.io/age v1.3.2
 	github.com/BurntSushi/toml v1.6.0
-	github.com/aws/aws-sdk-go-v2 v1.47.8 // AWS SDK core — S3Vault backend
+	github.com/aws/aws-sdk-go-v2 v1.48.0 // AWS SDK core — S3Vault backend
 	github.com/aws/aws-sdk-go-v2/config v1.33.16 // AWS config loading for S3Vault
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.16 // Static credentials provider for S3Vault
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.23.22 // Multipart upload manager for S3Vault
@@ -32,7 +32,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.39.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.44.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.9 // indirect
-	github.com/aws/smithy-go v1.28.8 // indirect
+	github.com/aws/smithy-go v1.28.9 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
